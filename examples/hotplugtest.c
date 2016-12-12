@@ -1,6 +1,7 @@
+/* -*- Mode: C; indent-tabs-mode:t ; c-basic-offset:8 -*- */
 /*
  * libusb example program for hotplug API
- * Copyright (C) 2012-2013 Nathan Hjelm <hjelmn@mac.ccom>
+ * Copyright © 2012-2013 Nathan Hjelm <hjelmn@mac.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -19,77 +20,103 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <sched.h>
-#include <unistd.h>
 
-#include <libusb.h>
+#include "libusb.h"
 
 int done = 0;
-libusb_device_handle *handle;
+libusb_device_handle *handle = NULL;
 
-int hotplug_callback (libusb_context *ctx, libusb_device *dev, libusb_hotplug_event event, void *user_data) {
-  struct libusb_device_descriptor desc;
-  int rc;
+static int LIBUSB_CALL hotplug_callback(libusb_context *ctx, libusb_device *dev, libusb_hotplug_event event, void *user_data)
+{
+	struct libusb_device_descriptor desc;
+	int rc;
 
-  rc = libusb_get_device_descriptor(dev, &desc);
-  if (LIBUSB_SUCCESS != rc) {
-    fprintf (stderr, "Error getting device descriptor\n");
-  }
+	rc = libusb_get_device_descriptor(dev, &desc);
+	if (LIBUSB_SUCCESS != rc) {
+		fprintf (stderr, "Error getting device descriptor\n");
+	}
 
-  printf ("Device attach: %04x:%04x\n", desc.idVendor, desc.idProduct);
+	printf ("Device attached: %04x:%04x\n", desc.idVendor, desc.idProduct);
 
-  libusb_open (dev, &handle);
+	if (handle) {
+		libusb_close (handle);
+		handle = NULL;
+	}
 
-  done++;
+	rc = libusb_open (dev, &handle);
+	if (LIBUSB_SUCCESS != rc) {
+		fprintf (stderr, "Error opening device\n");
+	}
 
-  return 0;
+	done++;
+
+	return 0;
 }
 
-int hotplug_callback_detach (libusb_context *ctx, libusb_device *dev, libusb_hotplug_event event, void *user_data) {
-  printf ("Device detached\n");
+static int LIBUSB_CALL hotplug_callback_detach(libusb_context *ctx, libusb_device *dev, libusb_hotplug_event event, void *user_data)
+{
+	printf ("Device detached\n");
 
-  libusb_close (handle);
+	if (handle) {
+		libusb_close (handle);
+		handle = NULL;
+	}
 
-  done++;
-  return 0;
+	done++;
+
+	return 0;
 }
 
-int main (int argc, char *argv[]) {
-  libusb_hotplug_callback_handle hp[2];
-  int product_id, vendor_id, class_id;
-  int rc;
+int main(int argc, char *argv[])
+{
+	libusb_hotplug_callback_handle hp[2];
+	int product_id, vendor_id, class_id;
+	int rc;
 
-  vendor_id  = (argc > 1) ? strtol (argv[1], NULL, 0) : 0x045a;
-  product_id = (argc > 2) ? strtol (argv[2], NULL, 0) : 0x5005;
-  class_id   = (argc > 3) ? strtol (argv[3], NULL, 0) : LIBUSB_HOTPLUG_MATCH_ANY;
+	vendor_id  = (argc > 1) ? (int)strtol (argv[1], NULL, 0) : 0x045a;
+	product_id = (argc > 2) ? (int)strtol (argv[2], NULL, 0) : 0x5005;
+	class_id   = (argc > 3) ? (int)strtol (argv[3], NULL, 0) : LIBUSB_HOTPLUG_MATCH_ANY;
 
-  libusb_init (NULL);
+	rc = libusb_init (NULL);
+	if (rc < 0)
+	{
+		printf("failed to initialise libusb: %s\n", libusb_error_name(rc));
+		return EXIT_FAILURE;
+	}
 
-  if (!libusb_has_capability (LIBUSB_CAP_HAS_HOTPLUG)) {
-    printf ("Hotplug not supported by this build of libusb\n");
-    libusb_exit (NULL);
-    return EXIT_FAILURE;
-  }
+	if (!libusb_has_capability (LIBUSB_CAP_HAS_HOTPLUG)) {
+		printf ("Hotplug capabilites are not supported on this platform\n");
+		libusb_exit (NULL);
+		return EXIT_FAILURE;
+	}
 
-  rc = libusb_hotplug_register_callback (NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED, 0, vendor_id,
-                                         product_id, class_id, hotplug_callback, NULL, &hp[0]);
-  if (LIBUSB_SUCCESS != rc) {
-    fprintf (stderr, "Error registering callback 0\n");
-    libusb_exit (NULL);
-    return EXIT_FAILURE;
-  }
+	rc = libusb_hotplug_register_callback (NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED, 0, vendor_id,
+		product_id, class_id, hotplug_callback, NULL, &hp[0]);
+	if (LIBUSB_SUCCESS != rc) {
+		fprintf (stderr, "Error registering callback 0\n");
+		libusb_exit (NULL);
+		return EXIT_FAILURE;
+	}
 
-  rc = libusb_hotplug_register_callback (NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, 0, vendor_id,
-                                         product_id,class_id, hotplug_callback_detach, NULL, &hp[1]);
-  if (LIBUSB_SUCCESS != rc) {
-    fprintf (stderr, "Error registering callback 1\n");
-    libusb_exit (NULL);
-    return EXIT_FAILURE;
-  }
+	rc = libusb_hotplug_register_callback (NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, 0, vendor_id,
+		product_id,class_id, hotplug_callback_detach, NULL, &hp[1]);
+	if (LIBUSB_SUCCESS != rc) {
+		fprintf (stderr, "Error registering callback 1\n");
+		libusb_exit (NULL);
+		return EXIT_FAILURE;
+	}
 
-  while (done < 2) {
-    libusb_handle_events (NULL);
-  }
+	while (done < 2) {
+		rc = libusb_handle_events (NULL);
+		if (rc < 0)
+			printf("libusb_handle_events() failed: %s\n", libusb_error_name(rc));
+	}
 
-  libusb_exit (NULL);
+	if (handle) {
+		libusb_close (handle);
+	}
+
+	libusb_exit (NULL);
+
+	return EXIT_SUCCESS;
 }
