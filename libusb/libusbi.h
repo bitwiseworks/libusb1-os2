@@ -26,6 +26,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include <sys/time.h>
 #include <stdarg.h>
 #ifdef HAVE_POLL_H
 #include <poll.h>
@@ -233,6 +234,8 @@ static inline void usbi_dbg(const char *fmt, ...)
 #include <os/poll_posix.h>
 #elif defined(OS_WINDOWS)
 #include <os/poll_windows.h>
+#elif defined(OS_OS2)
+#include <os/poll_os2.h>
 #endif
 
 #if defined(OS_WINDOWS) && !defined(__GCC__)
@@ -947,6 +950,7 @@ extern const struct usbi_os_backend * const usbi_backend;
 extern const struct usbi_os_backend linux_usbfs_backend;
 extern const struct usbi_os_backend darwin_backend;
 extern const struct usbi_os_backend openbsd_backend;
+extern const struct usbi_os_backend os2_backend;
 extern const struct usbi_os_backend windows_backend;
 
 extern struct list_head active_contexts_list;

@@ -3,6 +3,7 @@ lib_LTLIBRARIES = libusb-1.0.la
 LINUX_USBFS_SRC = os/linux_usbfs.c
 DARWIN_USB_SRC = os/darwin_usb.c
 OPENBSD_USB_SRC = os/openbsd_usb.c
+OS2_USB_SRC = os/poll_os2.c os/os2_usb.c
 WINDOWS_USB_SRC = os/poll_windows.c os/windows_usb.c libusb-1.0.rc \
 	libusb-1.0.def
 
@@ -27,6 +28,10 @@ endif
 
 if OS_OPENBSD
 OS_SRC = $(OPENBSD_USB_SRC)
+endif
+
+if OS_OS2
+OS_SRC = $(OS2_USB_SRC)
 endif
 
 if OS_WINDOWS

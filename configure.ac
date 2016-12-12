@@ -66,6 +66,10 @@ case $host in
 	AC_MSG_RESULT([Windows])
 	backend="windows"
 	;;
+*-os2-emx*)
+	AC_MSG_RESULT([OS2])
+	backend="os2"
+	;;
 *-cygwin*)
 	AC_MSG_RESULT([Cygwin (using Windows backend)])
 	backend="windows"
@@ -125,6 +129,13 @@ windows)
 	LTLDFLAGS="${LTLDFLAGS} -avoid-version -Wl,--add-stdcall-alias"
 	AC_DEFINE([POLL_NFDS_TYPE],[unsigned int],[type of second poll() argument])
 	;;
+os2)
+	AC_DEFINE(OS_OS2, 1, [OS/2 backend])
+	AC_SUBST(OS_OS2)
+	threads="posix"
+	PC_LIBS_PRIVATE="-lpthread"
+	AC_DEFINE([POLL_NFDS_TYPE],[unsigned int],[type of second poll() argument])
+	;;
 esac
 AC_SUBST(THREAD_CFLAGS)
 AC_SUBST(PC_LIBS_PRIVATE)
@@ -134,6 +145,7 @@ AM_CONDITIONAL(OS_LINUX, test "x$backend" = xlinux)
 AM_CONDITIONAL(OS_DARWIN, test "x$backend" = xdarwin)
 AM_CONDITIONAL(OS_OPENBSD, test "x$backend" = xopenbsd)
 AM_CONDITIONAL(OS_WINDOWS, test "x$backend" = xwindows)
+AM_CONDITIONAL(OS_OS2, test "x$backend" = xos2)
 AM_CONDITIONAL(THREADS_POSIX, test "x$threads" = xposix)
 AM_CONDITIONAL(USE_UDEV, test "x$enable_udev" = xyes)
 if test "$threads" = posix; then

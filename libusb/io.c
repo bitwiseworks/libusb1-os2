@@ -1062,7 +1062,9 @@ int usbi_io_init(struct libusb_context *ctx)
 	list_init(&ctx->pollfds);
 
 	/* FIXME should use an eventfd on kernels that support it */
+
 	r = usbi_pipe(ctx->ctrl_pipe);
+
 	if (r < 0) {
 		r = LIBUSB_ERROR_OTHER;
 		goto err;
@@ -1254,7 +1256,12 @@ struct libusb_transfer * LIBUSB_CALL libusb_alloc_transfer(
 		+ sizeof(struct libusb_transfer)
 		+ (sizeof(struct libusb_iso_packet_descriptor) * iso_packets)
 		+ os_alloc_size;
+#ifndef __OS2__
 	struct usbi_transfer *itransfer = malloc(alloc_size);
+#else
+	/* ensure memory is allocated in low memory arena */
+	struct usbi_transfer *itransfer = _tmalloc(alloc_size);
+#endif
 	if (!itransfer)
 		return NULL;
 

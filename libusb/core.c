@@ -43,6 +43,8 @@ const struct usbi_os_backend * const usbi_backend = &darwin_backend;
 const struct usbi_os_backend * const usbi_backend = &openbsd_backend;
 #elif defined(OS_WINDOWS)
 const struct usbi_os_backend * const usbi_backend = &windows_backend;
+#elif defined(OS_OS2)
+const struct usbi_os_backend * const usbi_backend = &os2_backend;
 #else
 #error "Unsupported OS"
 #endif

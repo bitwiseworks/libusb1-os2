@@ -79,6 +79,9 @@
 /* OpenBSD backend */
 #undef OS_OPENBSD
 
+/* OS/2 backend */
+#undef OS_OS2
+
 /* Windows backend */
 #undef OS_WINDOWS
 
