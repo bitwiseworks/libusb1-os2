@@ -1267,7 +1267,7 @@ struct libusb_transfer * LIBUSB_CALL libusb_alloc_transfer(
 	struct usbi_transfer *itransfer = calloc(1, alloc_size);
 #else
 	/* ensure memory is allocated in low memory arena */
-	struct usbi_transfer *itransfer = _tmalloc(alloc_size);
+	struct usbi_transfer *itransfer = _tcalloc(1, alloc_size);
 #endif
 	if (!itransfer)
 		return NULL;

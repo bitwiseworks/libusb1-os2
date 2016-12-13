@@ -177,7 +177,7 @@ os2_get_device_list(struct libusb_context * ctx,
 	struct device_priv *dpriv;
 
 	unsigned long session_id;
-	char      report[2048];
+	char      report[4096];
 
 	usbi_dbg("");
 
