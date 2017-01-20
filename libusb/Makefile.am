@@ -1,3 +1,8 @@
+VENDOR ?=community
+VERSION_PATCH=0
+BUILD_INFO=\#\#1\#\# $(shell date +'%d %b %Y %H:%M:%S')     $(shell uname -n)
+BUILDLEVEL_INFO=@\#$(VENDOR):$(VERSION)\#@$(BUILD_INFO)::::$(VERSION_PATCH)::
+
 all: libusb-1.0.la libusb-1.0.dll
 
 AUTOMAKE_OPTIONS = subdir-objects
@@ -100,7 +105,8 @@ THREADS_SRC = $(WINDOWS_THREADS_SRC)
 endif
 
 libusb_1_0_la_CFLAGS = $(AM_CFLAGS)
-libusb_1_0_la_LDFLAGS = $(LTLDFLAGS)
+libusb_1_0_la_LDFLAGS = $(LTLDFLAGS) \
+	-buildlevel '$(BUILDLEVEL_INFO)' -shortname usb10
 libusb_1_0_la_SOURCES = libusbi.h libusb.h version.h version_nano.h \
 	core.c descriptor.c hotplug.h hotplug.c io.c strerror.c sync.c \
 	$(POLL_SRC) $(THREADS_SRC) $(OS_SRC)

@@ -199,7 +199,7 @@ windows)
 os2)
 	AC_DEFINE(OS_OS2, 1, [OS/2 backend])
 	AC_SUBST(OS_OS2)
-	LIBS="${LIBS} -lpthread"
+	LIBS="${LIBS} -lcx -lpthread -lusbcalls"
 	AC_CHECK_HEADERS([poll.h])
 	AC_DEFINE([POLL_NFDS_TYPE],[nfds_t],[type of second poll() argument])
 	;;
