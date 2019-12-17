@@ -1,0 +1,19 @@
+#regenerated files
+autom4te.cache/
+aclocal.m4
+compile
+config.h.in*
+config.sub
+config.guess
+configure
+depcomp
+doc/Makefile.in
+examples/Makefile.in
+INSTALL
+install-sh
+libusb/Makefile.in
+ltmain.sh
+m4
+Makefile.in
+missing
+tests/Makefile.in
