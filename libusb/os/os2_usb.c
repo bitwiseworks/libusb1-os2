@@ -216,6 +216,7 @@ os2_get_device_list(struct libusb_context * ctx,
 				return -1;
 			}
 			dpriv = (struct device_priv *)dev->os_priv;
+			dpriv->fd = -1;
 			memcpy( &dpriv->ddesc, report, sizeof(dpriv->ddesc));
 			memcpy( &dpriv->report, report+sizeof(dpriv->ddesc), (len - sizeof(dpriv->ddesc)));
 
@@ -240,6 +241,13 @@ os2_open(struct libusb_device_handle *handle)
 		(USHORT)dpriv->ddesc.idProduct,
 		(USHORT)dpriv->ddesc.bcdDevice,
 		(USHORT)USB_OPEN_FIRST_UNUSED);
+
+	// if we can't attach the device, but have a fd already, this means
+	// we know the device. so reset error and use the known handle
+	if (rc && dpriv->fd != -1) {
+		rc = 0;
+		usbhandle = dpriv->fd;
+	}
 
 	if (rc) {
 		usbi_dbg( "unable to open device - id= %x/%x  rc= %x",
