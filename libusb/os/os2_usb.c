@@ -19,7 +19,9 @@
  */
 
 #define INCL_DOS
+#define INCL_DOSERRORS
 #include <os2.h>
+#include <InnoTekLIBC/errno.h>
 
 #include <config.h>
 
@@ -244,6 +246,8 @@ os2_open(struct libusb_device_handle *handle)
 			dpriv->ddesc.idVendor, 
 			dpriv->ddesc.idProduct, (int)rc);
 		dpriv->fd = -1;
+		// map errors to errno, so it could be printed if needed
+		errno = __libc_native2errno(rc);
 		return _errno_to_libusb(errno);
 	}
 
@@ -520,6 +524,8 @@ _errno_to_libusb(int err)
 		return (LIBUSB_ERROR_NO_DEVICE);
 	case ENOMEM:
 		return (LIBUSB_ERROR_NO_MEM);
+	case ETIMEDOUT:
+		return (LIBUSB_ERROR_TIMEOUT);
 	}
 
 	return (LIBUSB_ERROR_OTHER);
