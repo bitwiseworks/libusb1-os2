@@ -27,8 +27,9 @@
 #include <stdio.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/time.h>
 
-#include <libusb.h>
+#include "libusb.h"
 
 
 #define EP_DATA_IN	0x82
