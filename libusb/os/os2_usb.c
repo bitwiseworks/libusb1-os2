@@ -224,6 +224,8 @@ os2_get_device_list(struct libusb_context * ctx,
       }
       if (discovered_devs_append(*discdevs, dev) == NULL)
          return(LIBUSB_ERROR_NO_MEM);
+
+      libusb_unref_device(dev);
    }
    return(LIBUSB_SUCCESS);
 }
