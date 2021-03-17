@@ -43,6 +43,11 @@
 #include "os2_usb.h"
 
 /*
+ * directly exported function
+ */
+int clock_gettime(int clock_id, struct timespec *ts);
+
+/*
  * Backend functions
  */
 static int os2_get_device_list(struct libusb_context *,
@@ -92,10 +97,10 @@ const struct usbi_os_backend usbi_backend = {
    0,
    NULL,          /* init() */
    NULL,          /* exit() */
-   NULL,          /* set_option() */
+   NULL,          /* set_option() TODO TODO TODO */
    os2_get_device_list,
    NULL,          /* hotplug_poll() */
-   NULL,          /* wrap_sys_device() TODO TODO TODO*/
+   NULL,          /* wrap_sys_device() TODO TODO TODO */
    os2_open,
    os2_close,
 
@@ -139,6 +144,20 @@ const struct usbi_os_backend usbi_backend = {
 };
 
 int
+clock_gettime(int clock_id, struct timespec *ts)
+{
+   clock_id = clock_id;
+
+   struct timeval tv;
+
+   if (gettimeofday(&tv, NULL) < 0)
+      return(LIBUSB_ERROR_OTHER);
+   ts->tv_sec = tv.tv_sec;
+   ts->tv_nsec = tv.tv_usec * 1000;
+   return(LIBUSB_SUCCESS);
+}
+
+static int
 os2_get_device_list(struct libusb_context * ctx,
    struct discovered_devs **discdevs)
 {
@@ -228,7 +247,7 @@ os2_get_device_list(struct libusb_context * ctx,
    return(LIBUSB_SUCCESS);
 }
 
-int
+static int
 os2_open(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
@@ -243,27 +262,27 @@ os2_open(struct libusb_device_handle *handle)
          (USHORT)dev->device_descriptor.bcdDevice,
          (USHORT)USB_OPEN_FIRST_UNUSED);
 
-         if (rc) {
-            usbi_dbg( "unable to open device - id= %x/%x  rc= %x",
-               dev->device_descriptor.idVendor,
-               dev->device_descriptor.idProduct, (int)rc);
-            dpriv->fd = -1;
-            return( _apiret_to_libusb(rc));
-         }
+      if (rc) {
+         usbi_dbg( "unable to open device - id= %x/%x  rc= %x",
+            dev->device_descriptor.idVendor,
+            dev->device_descriptor.idProduct, (int)rc);
+         dpriv->fd = -1;
+         return( _apiret_to_libusb(rc));
+      }
 
-         dpriv->fd = usbhandle;
+      dpriv->fd = usbhandle;
 
+      /* set device configuration to 1st configuration */
+      rc = UsbDeviceSetConfiguration (dpriv->fd,1);
+      usbi_dbg("open, set device configuration: rc = %lu, fd %d", rc, dpriv->fd);
    } /* endif */
 
    usbi_dbg("open: fd %d", dpriv->fd);
-   /* set device configuration to 1st configuration */
-   rc = UsbDeviceSetConfiguration (dpriv->fd,1);
-   usbi_dbg("open, set device configuration: rc = %lu, fd %d", rc, dpriv->fd);
 
    return(LIBUSB_SUCCESS);
 }
 
-void
+static void
 os2_close(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
@@ -285,7 +304,7 @@ os2_close(struct libusb_device_handle *handle)
    } /* endif */
 }
 
-int
+static int
 os2_get_active_config_descriptor(struct libusb_device *dev,
     void *buf, size_t len)
 {
@@ -301,7 +320,7 @@ os2_get_active_config_descriptor(struct libusb_device *dev,
    return(len);
 }
 
-int
+static int
 os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
     void *buf, size_t len)
 {
@@ -310,25 +329,45 @@ os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
    return(os2_get_active_config_descriptor(dev,buf,len));
 }
 
-int
+/* 
+ * as requested in the function description in libusbi.h, make sure we avoid I/O to get the configuration value
+ * fortunately, USBD.SYS will internally save the selected configuration which we query here via
+ * UsbQueryDeviceInfo
+ */
+static int
 os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
 {
-   struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
+   struct libusb_device *dev = handle->dev;
+   ULONG cntDev,ctr,len;
    APIRET rc = LIBUSB_SUCCESS;
+   GETDEVINFODATA info;
 
    usbi_dbg("get configuration");
+   
    *config = 0;
-   rc = UsbDeviceGetConfiguration( (USBHANDLE)dpriv->fd, (PUCHAR)config);
+
+   rc = UsbQueryNumberDevices( &cntDev);
    if (rc) {
-      usbi_dbg( "unable to get configuration rc= %x",
-         (int)rc);
+      usbi_dbg( "unable to query number of USB devices - rc= %x", (int)rc);
       return(LIBUSB_ERROR_IO);
    }
+   for (ctr = 1; ctr <= cntDev; ctr++) {
+      len = sizeof(info);
+      rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
+      if (rc) {
+         usbi_dbg( "unable to query device info -  rc= %x", (int)rc);
+         return(LIBUSB_ERROR_IO);
+      } /* endif */
+      if (info.ctrlID == dev->bus_number && info.deviceAddress == dev->device_address) {
+         *config = info.bConfigurationValue;
+         return(LIBUSB_SUCCESS);
+      } /* endif */
+   }
 
-   return(LIBUSB_SUCCESS);
+   return(LIBUSB_ERROR_NO_DEVICE);
 }
 
-int
+static int
 os2_set_configuration(struct libusb_device_handle *handle, int config)
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
@@ -346,7 +385,7 @@ os2_set_configuration(struct libusb_device_handle *handle, int config)
    return(LIBUSB_SUCCESS);
 }
 
-int
+static int
 os2_claim_interface(struct libusb_device_handle *handle, uint8_t iface)
 {
    handle = handle;
@@ -356,7 +395,7 @@ os2_claim_interface(struct libusb_device_handle *handle, uint8_t iface)
    return(LIBUSB_SUCCESS);
 }
 
-int
+static int
 os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
 {
 /* USBRESM$ appears to handle this as part of opening the device */
@@ -381,7 +420,7 @@ os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
    return(errorcode);
 }
 
-int
+static int
 os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
     uint8_t altsetting)
 {
@@ -398,7 +437,7 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
    return (LIBUSB_SUCCESS);
 }
 
-int
+static int
 os2_clear_halt(struct libusb_device_handle *handle, unsigned char endpoint)
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
@@ -409,7 +448,7 @@ os2_clear_halt(struct libusb_device_handle *handle, unsigned char endpoint)
    return(_apiret_to_libusb(rc));
 }
 
-int
+static int
 os2_reset_device(struct libusb_device_handle *handle)
 {
 /* TO DO */
@@ -419,7 +458,7 @@ os2_reset_device(struct libusb_device_handle *handle)
    return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
-void
+static void
 os2_destroy_device(struct libusb_device *dev)
 {
    usbi_dbg(" ");
@@ -427,7 +466,7 @@ os2_destroy_device(struct libusb_device *dev)
    _call_iso_close(dev);
 }
 
-int
+static int
 os2_submit_transfer(struct usbi_transfer *itransfer)
 {
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
@@ -470,7 +509,7 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
    return(LIBUSB_SUCCESS);
 }
 
-int
+static int
 os2_cancel_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
@@ -523,7 +562,7 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    return(errorcode);
 }
 
-void
+static void
 os2_clear_transfer_priv(struct usbi_transfer *itransfer)
 {
    itransfer = itransfer;
@@ -532,23 +571,12 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
    /* Nothing to do */
 }
 
-int
+static int
 os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 {
    return(usbi_handle_transfer_completion(itransfer, LIBUSB_TRANSFER_COMPLETED));
 }
 
-int
-clock_gettime(int clock_id, struct timespec *ts)
-{
-   struct timeval tv;
-
-   if (gettimeofday(&tv, NULL) < 0)
-      return LIBUSB_ERROR_OTHER;
-   ts->tv_sec = tv.tv_sec;
-   ts->tv_nsec = tv.tv_usec * 1000;
-   return(LIBUSB_SUCCESS);
-}
 
 static int _is_streaming_interface(struct libusb_device *dev, int iface)
 {
