@@ -228,32 +228,30 @@ os2_get_device_list(struct libusb_context * ctx,
 int
 os2_open(struct libusb_device_handle *handle)
 {
-   struct device_priv *dpriv = (struct device_priv *)handle->dev->os_priv;
-   APIRET    rc;
+   struct libusb_device *dev = handle->dev;
+   struct device_priv *dpriv = (struct device_priv *)dev->os_priv;
+   APIRET    rc = NO_ERROR;
    int       usbhandle;
 
-   rc = UsbOpen( (PUSBHANDLE)&usbhandle,
-      (USHORT)dpriv->ddesc.idVendor,
-      (USHORT)dpriv->ddesc.idProduct,
-      (USHORT)dpriv->ddesc.bcdDevice,
-      (USHORT)USB_OPEN_FIRST_UNUSED);
+   if (dev->refcnt == 2) {
+      rc = UsbOpen( (PUSBHANDLE)&usbhandle,
+         (USHORT)dpriv->ddesc.idVendor,
+         (USHORT)dpriv->ddesc.idProduct,
+         (USHORT)dpriv->ddesc.bcdDevice,
+         (USHORT)USB_OPEN_FIRST_UNUSED);
 
-   /* if we can't attach the device, but have a fd already, this means */
-   /* we know the device. so reset error and use the known handle      */
-   if (rc && dpriv->fd != -1) {
-      rc = LIBUSB_SUCCESS;
-      usbhandle = dpriv->fd;
-   }
+         if (rc) {
+            usbi_dbg( "unable to open device - id= %x/%x  rc= %x",
+               dpriv->ddesc.idVendor,
+               dpriv->ddesc.idProduct, (int)rc);
+            dpriv->fd = -1;
+            return( _apiret_to_libusb(rc));
+         }
+      
+         dpriv->fd = usbhandle;
 
-   if (rc) {
-      usbi_dbg( "unable to open device - id= %x/%x  rc= %x",
-         dpriv->ddesc.idVendor,
-         dpriv->ddesc.idProduct, (int)rc);
-      dpriv->fd = -1;
-      return( _apiret_to_libusb(rc));
-   }
+   } /* endif */
 
-   dpriv->fd = usbhandle;
    usbi_dbg("open: fd %d", dpriv->fd);
    /* set device configuration to 1st configuration */
    rc = UsbDeviceSetConfiguration (dpriv->fd,1);
@@ -265,20 +263,23 @@ os2_open(struct libusb_device_handle *handle)
 void
 os2_close(struct libusb_device_handle *handle)
 {
-   struct device_priv *dpriv = (struct device_priv *)handle->dev->os_priv;
+   struct libusb_device *dev = handle->dev;
+   struct device_priv *dpriv = (struct device_priv *)dev->os_priv;
    APIRET    rc;
 
    usbi_dbg("close: fd %d", dpriv->fd);
 
-   rc = UsbClose( (USBHANDLE)dpriv->fd);
-   if (rc) {
-      usbi_dbg( "unable to close device - id= %x/%x  handle= %x  rc= %d",
-          dpriv->ddesc.idVendor,
-          dpriv->ddesc.idProduct,
-          dpriv->fd, (int)rc);
-   }
-
-   dpriv->fd = -1;
+   if (dev->refcnt == 2) {
+      rc = UsbClose( (USBHANDLE)dpriv->fd);
+      if (rc) {
+         usbi_dbg( "unable to close device - id= %x/%x  handle= %x  rc= %d",
+             dpriv->ddesc.idVendor,
+             dpriv->ddesc.idProduct,
+             dpriv->fd, (int)rc);
+      }
+   
+      dpriv->fd = -1;
+   } /* endif */
 }
 
 int
@@ -482,10 +483,54 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
 int
 os2_cancel_transfer(struct usbi_transfer *itransfer)
 {
-/* Not supported on bsd, so we won't either */
    usbi_dbg("");
 
-   return(LIBUSB_ERROR_NOT_SUPPORTED);
+   struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+   struct libusb_device *dev        = transfer->dev_handle->dev;
+   struct device_priv *dpriv        = (struct device_priv *)dev->os_priv;
+   APIRET rc = NO_ERROR;
+   int errorcode = LIBUSB_SUCCESS;
+   int iface = 0;
+   HEV    hCancelComplete=0;
+
+   do {
+      rc = DosCreateEventSem(NULL,&hCancelComplete,DC_SEM_SHARED,FALSE);
+      if (NO_ERROR != rc) {
+         usbi_dbg("os2_cancel_transfer: DosCreateEventSem failed, apiret: %u",rc);
+         errorcode = LIBUSB_ERROR_OTHER;
+         break;
+      } /* endif */
+
+      iface = _interface_for_endpoint(dev,transfer->endpoint);
+      if (iface < 0) {
+         usbi_dbg("os2_cancel_transfer: endpoint %#02 not associated with streaming interface",transfer->endpoint);
+         errorcode = LIBUSB_ERROR_INVALID_PARAM;
+         break;
+      } /* endif */
+
+      rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)hCancelComplete);
+      if (!rc) {
+         rc = DosWaitEventSem(hCancelComplete,(ULONG)transfer->timeout);
+         if (rc) {
+            usbi_dbg("os2_cancel_transfer: DosWaitEventSem failed, apiret: %u",rc);
+            errorcode = _apiret_to_libusb(rc);
+            /* do NOT quit, we need to do the final cleanup */
+         } /* endif */
+      }
+      else {   
+         errorcode = _apiret_to_libusb(rc);
+      }
+   } while ( 0 ); /* enddo */
+
+   if (hCancelComplete) {
+      rc = DosCloseEventSem(hCancelComplete); hCancelComplete = 0;
+      if (NO_ERROR != rc) {
+         usbi_dbg("os2_cancel_transfer: DosCloseEventSem failed, apiret: %u",rc);
+         errorcode = _apiret_to_libusb(rc);
+      } /* endif */
+   } /* endif */
+
+   return(errorcode);
 }
 
 void
