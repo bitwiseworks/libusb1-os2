@@ -538,6 +538,18 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
    return(usbi_handle_transfer_completion(itransfer, LIBUSB_TRANSFER_COMPLETED));
 }
 
+int
+clock_gettime(int clock_id, struct timespec *ts)
+{
+   struct timeval tv;
+
+   if (gettimeofday(&tv, NULL) < 0)
+      return LIBUSB_ERROR_OTHER;
+   ts->tv_sec = tv.tv_sec;
+   ts->tv_nsec = tv.tv_usec * 1000;
+   return(LIBUSB_SUCCESS);
+}
+
 static int _is_streaming_interface(struct libusb_device *dev, int iface)
 {
    struct libusb_config_descriptor *config    = NULL;
