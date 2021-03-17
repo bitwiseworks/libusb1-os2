@@ -22,7 +22,6 @@ struct device_priv {
    int fd;                                /* device file descriptor */
    int altsetting[USB_MAXINTERFACES];     /* remembers what alternate setting was chosen for a given interface */
    int endpoint[USB_MAXINTERFACES];       /* remembers what endpoint was chosen for a given interface */
-   struct libusb_device_descriptor ddesc; /* usb device descriptor */
    unsigned char cdesc[4096];             /* active config descriptor */
 };
 

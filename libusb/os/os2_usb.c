@@ -172,6 +172,11 @@ os2_get_device_list(struct libusb_context * ctx,
 
          len = sizeof(info);
          rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
+         if (rc) {
+            usbi_dbg( "unable to query device info - device= %d  rc= %x",   (int)ctr, (int)rc);
+            libusb_unref_device(dev);
+            return(LIBUSB_ERROR_IO);
+         }
 
          dev->bus_number     = info.ctrlID;        /* under OS/2, the used HC is equivalent to the bus number */
          dev->device_address = info.deviceAddress; /* the real USB address programmed into the USB device */
@@ -194,21 +199,26 @@ os2_get_device_list(struct libusb_context * ctx,
                                                    /* but only non-hub devices are exposed by USBD.SYS (and therefore USBRESMG.SYS) */
                                                    /* therefore, it is impossible to query the full bus hierarchy */
 
-         /* add device_descriptor to dpriv->ddesc */
          len = sizeof(scratchBuf);
          rc = UsbQueryDeviceReport( ctr, &len, scratchBuf);
          if (rc) {
             usbi_dbg( "unable to query device report - device= %d  rc= %x",   (int)ctr, (int)rc);
+            libusb_unref_device(dev);
             return(LIBUSB_ERROR_IO);
          }
+         memcpy(&dev->device_descriptor,scratchBuf, LIBUSB_DT_DEVICE_SIZE);
+         usbi_localize_device_descriptor(&dev->device_descriptor);
+
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
          dpriv->fd = -1;
          memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
          memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
-         memcpy( &dpriv->ddesc, scratchBuf, sizeof(dpriv->ddesc));
-         memcpy(  dpriv->cdesc, scratchBuf + sizeof(dpriv->ddesc), (len - sizeof(dpriv->ddesc)));
+         memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
 
-         usbi_sanitize_device(dev);
+         if (usbi_sanitize_device(dev)) {
+            libusb_unref_device(dev);
+            continue;
+         }
       }
       if (discovered_devs_append(*discdevs, dev) == NULL)
          return(LIBUSB_ERROR_NO_MEM);
@@ -228,15 +238,15 @@ os2_open(struct libusb_device_handle *handle)
 
    if (dev->refcnt == 2) {
       rc = UsbOpen( (PUSBHANDLE)&usbhandle,
-         (USHORT)dpriv->ddesc.idVendor,
-         (USHORT)dpriv->ddesc.idProduct,
-         (USHORT)dpriv->ddesc.bcdDevice,
+         (USHORT)dev->device_descriptor.idVendor,
+         (USHORT)dev->device_descriptor.idProduct,
+         (USHORT)dev->device_descriptor.bcdDevice,
          (USHORT)USB_OPEN_FIRST_UNUSED);
 
          if (rc) {
             usbi_dbg( "unable to open device - id= %x/%x  rc= %x",
-               dpriv->ddesc.idVendor,
-               dpriv->ddesc.idProduct, (int)rc);
+               dev->device_descriptor.idVendor,
+               dev->device_descriptor.idProduct, (int)rc);
             dpriv->fd = -1;
             return( _apiret_to_libusb(rc));
          }
@@ -266,8 +276,8 @@ os2_close(struct libusb_device_handle *handle)
       rc = UsbClose( (USBHANDLE)dpriv->fd);
       if (rc) {
          usbi_dbg( "unable to close device - id= %x/%x  handle= %x  rc= %d",
-             dpriv->ddesc.idVendor,
-             dpriv->ddesc.idProduct,
+             dev->device_descriptor.idVendor,
+             dev->device_descriptor.idProduct,
              dpriv->fd, (int)rc);
       }
 
