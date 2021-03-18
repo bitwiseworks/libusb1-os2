@@ -168,7 +168,6 @@ os2_get_device_list(struct libusb_context * ctx,
    struct libusb_device *dev;
    struct device_priv *dpriv;
 
-   unsigned long session_id;
    unsigned char scratchBuf[LIBUSB_DT_DEVICE_SIZE+4096];
    GETDEVINFODATA info;
 
@@ -181,21 +180,21 @@ os2_get_device_list(struct libusb_context * ctx,
       return(LIBUSB_ERROR_IO);
    }
    usbi_dbg( "%lu devices detected", cntDev);
-   for (ctr = 1; ctr <= cntDev; ctr++) {
-      session_id = ctr;
-      dev = usbi_get_device_by_session_id(ctx, session_id);
+   for (ctr = 1; ctr <= cntDev; ctr++)
+   {
+      len = sizeof(info);
+      rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
+      if (rc) {
+         usbi_dbg( "unable to query device info - device= %d  rc= %x",   (int)ctr, (int)rc);
+         libusb_unref_device(dev);
+         return(LIBUSB_ERROR_IO);
+      }
+
+      dev = usbi_get_device_by_session_id(ctx, info.rmDevHandle);
       if (dev == NULL) {
-         dev = usbi_alloc_device(ctx, session_id);
+         dev = usbi_alloc_device(ctx, info.rmDevHandle);
          if (dev == NULL)
             return(LIBUSB_ERROR_NO_MEM);
-
-         len = sizeof(info);
-         rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
-         if (rc) {
-            usbi_dbg( "unable to query device info - device= %d  rc= %x",   (int)ctr, (int)rc);
-            libusb_unref_device(dev);
-            return(LIBUSB_ERROR_IO);
-         }
 
          dev->bus_number     = info.ctrlID;        /* under OS/2, the used HC is equivalent to the bus number */
          dev->device_address = info.deviceAddress; /* the real USB address programmed into the USB device */
@@ -230,6 +229,7 @@ os2_get_device_list(struct libusb_context * ctx,
 
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
          dpriv->fd = -1;
+         dpriv->rmDevHandle = info.rmDevHandle;     /* under OS/2, the Resource Manager device handle is a GUID, well suited to track a device */
          memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
          memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
          memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
@@ -329,7 +329,7 @@ os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
    return(os2_get_active_config_descriptor(dev,buf,len));
 }
 
-/* 
+/*
  * as requested in the function description in libusbi.h, make sure we avoid I/O to get the configuration value
  * fortunately, USBD.SYS will internally save the selected configuration which we query here via
  * UsbQueryDeviceInfo
@@ -337,13 +337,13 @@ os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
 static int
 os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
 {
-   struct libusb_device *dev = handle->dev;
+   struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
    ULONG cntDev,ctr,len;
    APIRET rc = LIBUSB_SUCCESS;
    GETDEVINFODATA info;
 
-   usbi_dbg("get configuration");
-   
+   usbi_dbg(" ");
+
    *config = 0;
 
    rc = UsbQueryNumberDevices( &cntDev);
@@ -358,7 +358,7 @@ os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
          usbi_dbg( "unable to query device info -  rc= %x", (int)rc);
          return(LIBUSB_ERROR_IO);
       } /* endif */
-      if (info.ctrlID == dev->bus_number && info.deviceAddress == dev->device_address) {
+      if (info.rmDevHandle == dpriv->rmDevHandle) {
          *config = info.bConfigurationValue;
          return(LIBUSB_SUCCESS);
       } /* endif */
@@ -373,7 +373,7 @@ os2_set_configuration(struct libusb_device_handle *handle, int config)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
    APIRET    rc = LIBUSB_SUCCESS;
 
-   usbi_dbg("set configuration %d", config);
+   usbi_dbg("configuration %d", config);
 
    rc = UsbDeviceSetConfiguration( (USBHANDLE)dpriv->fd, (USHORT)config);
    if (rc) {

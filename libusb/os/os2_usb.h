@@ -20,6 +20,7 @@ typedef struct _USBCALLS_MY_ISO_RSP_
 
 struct device_priv {
    int fd;                                /* device file descriptor */
+   ULONG rmDevHandle;                     /* the OS/2 Resource Manager device handle, a GUID */
    int altsetting[USB_MAXINTERFACES];     /* remembers what alternate setting was chosen for a given interface */
    int endpoint[USB_MAXINTERFACES];       /* remembers what endpoint was chosen for a given interface */
    unsigned char cdesc[4096];             /* active config descriptor */
