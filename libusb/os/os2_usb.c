@@ -556,6 +556,12 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    int errorcode = LIBUSB_SUCCESS;
    int iface = 0;
 
+   /* cancel against default control endpoint is never necessary */
+   if (!transfer->endpoint)
+   {
+       return(errorcode);
+   }
+
    iface = _interface_for_endpoint(dev,transfer->endpoint);
    if (iface < 0) {
       usbi_dbg("endpoint %#02x not associated with streaming interface",transfer->endpoint);
