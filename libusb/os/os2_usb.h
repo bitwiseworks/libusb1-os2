@@ -21,13 +21,9 @@ typedef struct _USBCALLS_MY_ISO_RSP_
 struct device_priv {
    int fd;                                /* device file descriptor */
    ULONG rmDevHandle;                     /* the OS/2 Resource Manager device handle, a GUID */
+   int initial_altsetting[USB_MAXINTERFACES]; /* remembers the alternate setting that was set initially on an isochronous transfer, updated only for isochronous transfers */
    int altsetting[USB_MAXINTERFACES];     /* remembers what alternate setting was chosen for a given interface */
    int endpoint[USB_MAXINTERFACES];       /* remembers what endpoint was chosen for a given interface */
    unsigned char cdesc[4096];             /* active config descriptor */
-};
-
-struct transfer_priv {
-   int currinterface;
-   int curraltsetting;
 };
 

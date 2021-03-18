@@ -140,7 +140,7 @@ const struct usbi_os_backend usbi_backend = {
    0,                            /* context private data */
    sizeof(struct device_priv),   /* device private data */
    0,                            /* handle private data */
-   sizeof(struct transfer_priv)  /* transfer private data */
+   0                             /* transfer private data */
 };
 
 int
@@ -230,6 +230,7 @@ os2_get_device_list(struct libusb_context * ctx,
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
          dpriv->fd = -1;
          dpriv->rmDevHandle = info.rmDevHandle;     /* under OS/2, the Resource Manager device handle is a GUID, well suited to track a device */
+         memset(dpriv->initial_altsetting,0,sizeof(dpriv->initial_altsetting));
          memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
          memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
          memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
@@ -855,7 +856,6 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
    usbi_dbg(" ");
 
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_device *dev        = transfer->dev_handle->dev;
    struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET rc = NO_ERROR;
@@ -883,17 +883,13 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          break;
       } /* endif */
 
-      if (!tpriv->currinterface) {
-         iface = _interface_for_endpoint(dev,transfer->endpoint);
-         if (iface < 0) {
-            usbi_dbg("_sync_iso_transfer: endpoint %#02x not associated with streaming interface",transfer->endpoint);
-            errorcode = LIBUSB_ERROR_INVALID_PARAM;
-            break;
-         } /* endif */
-         tpriv->currinterface = iface;
+      iface = _interface_for_endpoint(dev,transfer->endpoint);
+      if (iface < 0) {
+         usbi_dbg("_sync_iso_transfer: endpoint %#02x not associated with streaming interface",transfer->endpoint);
+         errorcode = LIBUSB_ERROR_INVALID_PARAM;
+         break;
       } /* endif */
 
-      iface = tpriv->currinterface;
       if (!dpriv->altsetting[iface]) {
          usbi_dbg("_sync_iso_transfer: cannot do isochronous transfer with altsetting = 0");
          errorcode = LIBUSB_ERROR_INVALID_PARAM;
@@ -921,11 +917,11 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       pIsoResponse->usStatus = 0;
       pIsoResponse->usDataLength = (USHORT)length;
 
-      if (tpriv->curraltsetting != dpriv->altsetting[iface]) {
-         if (tpriv->curraltsetting) {
-            rc = UsbIsoClose((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)tpriv->curraltsetting);
+      if (dpriv->initial_altsetting[iface] != dpriv->altsetting[iface]) {
+         if (dpriv->initial_altsetting[iface]) {
+            rc = UsbIsoClose((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->initial_altsetting[iface]);
             if (NO_ERROR != rc) {
-               usbi_dbg("_sync_iso_transfer: UsbIsoClose failed for if %#02x, alt %#02x, ep %#02x, apiret: %lu",iface,tpriv->curraltsetting,transfer->endpoint,rc);
+               usbi_dbg("_sync_iso_transfer: UsbIsoClose failed for if %#02x, alt %#02x, ep %#02x, apiret: %lu",iface,dpriv->initial_altsetting[iface],transfer->endpoint,rc);
                errorcode = _apiret_to_libusb(rc);
             } /* endif */
          } /* endif */
@@ -935,7 +931,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
             errorcode = _apiret_to_libusb(rc);
             break;
          } /* endif */
-         tpriv->curraltsetting  = dpriv->altsetting[iface];
+         dpriv->initial_altsetting[iface] = dpriv->altsetting[iface];
       } /* endif */
 
       rc = UsbStartIsoTransfer((USBHANDLE)dpriv->fd,
