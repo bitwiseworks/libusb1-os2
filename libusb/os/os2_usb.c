@@ -43,11 +43,6 @@
 #include "os2_usb.h"
 
 /*
- * directly exported function
- */
-int clock_gettime(int clock_id, struct timespec *ts);
-
-/*
  * Backend functions
  */
 static int os2_get_device_list(struct libusb_context *,
@@ -142,20 +137,6 @@ const struct usbi_os_backend usbi_backend = {
    0,                            /* handle private data */
    0                             /* transfer private data */
 };
-
-int
-clock_gettime(int clock_id, struct timespec *ts)
-{
-   clock_id = clock_id;
-
-   struct timeval tv;
-
-   if (gettimeofday(&tv, NULL) < 0)
-      return(LIBUSB_ERROR_OTHER);
-   ts->tv_sec = tv.tv_sec;
-   ts->tv_nsec = tv.tv_usec * 1000;
-   return(LIBUSB_SUCCESS);
-}
 
 static int
 os2_get_device_list(struct libusb_context * ctx,
