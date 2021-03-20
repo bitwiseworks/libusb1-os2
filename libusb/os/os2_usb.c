@@ -987,8 +987,11 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       } /* endif */
    } while (0); /* enddo */
 
-   /* free also accepts a NULL pointer */
-   free((void *)pIsoResponse); pIsoResponse = NULL;
+   if (pIsoResponse)
+   {
+      free(pIsoResponse);
+      pIsoResponse = NULL;
+   }
 
    usbi_dbg("itransfer->transferred = %d, nr =%d",itransfer->transferred, transfer->length);
    return(errorcode);
