@@ -23,6 +23,7 @@ struct device_priv {
    ULONG rmDevHandle;                     /* the OS/2 Resource Manager device handle, a GUID */
    HEV   hTransferSem;                    /* event semaphore used to signal end of transfer, used predominantely for iso */
    HEV   hCancelSem;                      /* event semaphore used to signal and of transfer cancelling */
+   struct libusb_config_descriptor *curr_config_descriptor;
    uint8_t initial_altsetting[USB_MAXINTERFACES]; /* remembers the alternate setting that was set initially on an isochronous transfer, updated only for isochronous transfers */
    uint8_t altsetting[USB_MAXINTERFACES];     /* remembers what alternate setting was chosen for a given interface */
    uint8_t endpoint[USB_MAXINTERFACES];       /* remembers what endpoint was chosen for a given interface */
