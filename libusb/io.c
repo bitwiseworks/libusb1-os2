@@ -1347,11 +1347,7 @@ void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 
 	usbi_dbg("transfer %p", transfer);
 	if (transfer->flags & LIBUSB_TRANSFER_FREE_BUFFER)
-#ifndef __OS2__
 		free(transfer->buffer);
-#else
-		_tfree(transfer->buffer);
-#endif
 
 	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
 	usbi_mutex_destroy(&itransfer->lock);
