@@ -915,7 +915,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       }
       dpriv->endpoint[iface] = transfer->endpoint;
 
-      pIsoResponse = (PUSBCALLS_MY_ISO_RSP)_tmalloc(sizeof(USBCALLS_MY_ISO_RSP)+ transfer->num_iso_packets * sizeof(USHORT));
+      pIsoResponse = (PUSBCALLS_MY_ISO_RSP)malloc(sizeof(USBCALLS_MY_ISO_RSP)+ transfer->num_iso_packets * sizeof(USHORT));
       if (!pIsoResponse) {
          usbi_dbg("error allocating pIsoResponse structure");
          errorcode = LIBUSB_ERROR_NO_MEM;
@@ -947,7 +947,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,dpriv->altsetting[iface],transfer->endpoint,rc);
          if (NO_ERROR != rc) {
             errorcode = _apiret_to_libusb(rc);
-            break;
+            //break;
          } /* endif */
          dpriv->initial_altsetting[iface] = dpriv->altsetting[iface];
       } /* endif */
@@ -988,7 +988,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
    } while (0); /* enddo */
 
    /* free also accepts a NULL pointer */
-   _tfree((void *)pIsoResponse); pIsoResponse = NULL;
+   free((void *)pIsoResponse); pIsoResponse = NULL;
 
    usbi_dbg("itransfer->transferred = %d, nr =%d",itransfer->transferred, transfer->length);
    return(errorcode);
