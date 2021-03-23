@@ -1,7 +1,4 @@
 /*
- * Copyright (c) 2013 Paul Smedley <paul@smedley.id.au>
- * Heavily influenced by openbsd_usb.c
- * & the libusb 0.1.x port Copyright (c) 2006 Richard L Walsh
  * Copyright (c) 2021 Lars Erdmann
  *
  * This library is free software; you can redistribute it and/or
@@ -330,7 +327,7 @@ os2_get_active_config_descriptor(struct libusb_device *dev,
 
    usbi_dbg("len %d", len);
 
-   memcpy(buf, dpriv->cdesc, len); /* added 28-04-2013 */
+   memcpy(buf, dpriv->cdesc, len);
 
    return(len);
 }
