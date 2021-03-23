@@ -110,11 +110,7 @@ int API_EXPORTED libusb_control_transfer(libusb_device_handle *dev_handle,
 	if (!transfer)
 		return LIBUSB_ERROR_NO_MEM;
 
-#ifndef __OS2__
 	buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + wLength);
-#else
-	buffer = _tmalloc(LIBUSB_CONTROL_SETUP_SIZE + wLength);
-#endif
 	if (!buffer) {
 		libusb_free_transfer(transfer);
 		return LIBUSB_ERROR_NO_MEM;

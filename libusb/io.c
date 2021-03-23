@@ -1301,12 +1301,7 @@ struct libusb_transfer * LIBUSB_CALL libusb_alloc_transfer(
 		+ sizeof(struct usbi_transfer)
 		+ sizeof(struct libusb_transfer)
 		+ (sizeof(struct libusb_iso_packet_descriptor) * (size_t)iso_packets);
-#ifndef __OS2__
 	ptr = calloc(1, alloc_size);
-#else
-	/* ensure memory is allocated in low memory arena */
-	ptr = _tcalloc(1, alloc_size);
-#endif
 	if (!ptr)
 		return NULL;
 
@@ -1347,11 +1342,7 @@ void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 
 	usbi_dbg("transfer %p", transfer);
 	if (transfer->flags & LIBUSB_TRANSFER_FREE_BUFFER)
-#ifndef __OS2__
 		free(transfer->buffer);
-#else
-		_tfree(transfer->buffer);
-#endif
 
 	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
 	usbi_mutex_destroy(&itransfer->lock);
@@ -1359,11 +1350,7 @@ void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 	priv_size = PTR_ALIGN(usbi_backend.transfer_priv_size);
 	ptr = (unsigned char *)itransfer - priv_size;
 	assert(ptr == itransfer->priv);
-#ifndef __OS2__
 	free(ptr);
-#else
-	_tfree(ptr);
-#endif
 }
 
 /* iterates through the flying transfers, and rearms the timer based on the

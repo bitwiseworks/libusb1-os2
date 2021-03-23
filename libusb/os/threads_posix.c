@@ -39,6 +39,9 @@
 # include <sys/lwp.h>
 #endif
 
+#define INCL_BASE
+#include <os2.h>
+
 void usbi_cond_init(pthread_cond_t *cond)
 {
 #ifdef HAVE_PTHREAD_CONDATTR_SETCLOCK
@@ -83,9 +86,15 @@ int usbi_cond_timedwait(pthread_cond_t *cond,
 
 unsigned int usbi_get_tid(void)
 {
-	static _Thread_local unsigned int tl_tid;
+#ifdef __OS2__
+	PTIB ptib = NULL;
+	PPIB ppib = NULL;
+	DosGetInfoBlocks(&ptib,&ppib);
+	return ptib->tib_ordinal;
+#else
+	static _Thread_local unsigned int tl_tid=0;
 	int tid;
-
+	
 	if (tl_tid)
 		return tl_tid;
 
@@ -126,4 +135,5 @@ unsigned int usbi_get_tid(void)
 	}
 
 	return tl_tid = (unsigned int)tid;
+#endif
 }
