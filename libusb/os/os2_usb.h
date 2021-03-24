@@ -16,6 +16,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#define MAX_NUM_ISO_PACKETS 4096
+
 #pragma pack(1)
 typedef struct _GETDEVINFODATA_
 {
@@ -32,7 +34,7 @@ typedef struct _GETDEVINFODATA_
 typedef struct _USBCALLS_MY_ISO_RSP_
 { unsigned short usStatus;
   unsigned short usDataLength;
-  unsigned short usFrameSize[32768];
+  unsigned short usFrameSize[MAX_NUM_ISO_PACKETS];
 } USBCALLS_MY_ISO_RSP, *PUSBCALLS_MY_ISO_RSP;
 #pragma pack()
 
