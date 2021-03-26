@@ -891,7 +891,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
    int errorcode = LIBUSB_SUCCESS;
 
 
-   usbi_dbg("nr = %d",transfer->length);
+   usbi_dbg("nr = %u, num packets = %u",transfer->length,transfer->num_iso_packets);
 
 
    itransfer->transferred = 0;
@@ -960,7 +960,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          rc = UsbIsoOpen((USBHANDLE)dpriv->fd,
                             (UCHAR)transfer->endpoint,
                             (UCHAR)dpriv->altsetting[iface],
-                            1U, /* only use one HC internal ISO buffer management structure */
+                            6U, /* use six HC internal ISO buffer management structures */
                             (USHORT)packet_len);
          usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,dpriv->altsetting[iface],transfer->endpoint,rc);
          if (NO_ERROR != rc) {
@@ -973,7 +973,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       rc = UsbIsoOpen((USBHANDLE)dpriv->fd,
                          (UCHAR)transfer->endpoint,
                          (UCHAR)dpriv->altsetting[iface],
-                         1U, /* only use one HC internal ISO buffer management structure */
+                         6U, /* use six HC internal ISO buffer management structures */
                          (USHORT)packet_len);
       usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,dpriv->altsetting[iface],transfer->endpoint,rc);
       if (NO_ERROR != rc) {
@@ -983,6 +983,12 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
 #endif
 
       num_max_packets_per_execution = 65535U / packet_len;
+      /*
+       * IMPORTANT: for every invocation of UsbStartIsoTransfer in conjunction with EHCI, the number of packets
+       * has to be a multiple of 8 !!!
+       * for UHCI/OHCI this does not matter but it's also not wrong
+       */
+      num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
       num_max_executions = length / (num_max_packets_per_execution * packet_len);
       num_remaining_packets = transfer->num_iso_packets - (num_max_packets_per_execution * num_max_executions);
 
