@@ -885,7 +885,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,dpriv->altsetting[iface],transfer->endpoint,rc);
       if (NO_ERROR != rc) {
          errorcode = _apiret_to_libusb(rc);
-         break;
+         goto cleanup2;
       }
 
       rc = DosCreateEventSem(NULL,&hTransferSem,DC_SEM_SHARED,FALSE);
@@ -1027,6 +1027,7 @@ cleanup:
          errorcode = _apiret_to_libusb(rc);
       }
 
+cleanup2:
       /*
        * free the per-device mutex protection, we are done
        */
