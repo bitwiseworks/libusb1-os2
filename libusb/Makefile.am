@@ -33,7 +33,7 @@ OS_WINDOWS_SRC = libusb-1.0.def libusb-1.0.rc \
 		 os/windows_common.h os/windows_common.c \
 		 os/windows_usbdk.h os/windows_usbdk.c \
 		 os/windows_winusb.h os/windows_winusb.c
-OS_OS2_SRC = os/os2_usb.c
+OS_OS2_SRC = os/os2_usb.c os/os2_usb.h
 
 if OS_DARWIN
 OS_SRC = $(OS_DARWIN_SRC)
