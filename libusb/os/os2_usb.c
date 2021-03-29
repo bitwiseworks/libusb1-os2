@@ -392,6 +392,7 @@ os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
    if (_is_streaming_interface(dev,iface) && dpriv->endpoint[iface] && dpriv->altsetting[iface])
    {
       rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(USHORT)0);
+      //rc = UsbCtrlMessage((USBHANDLE)dpriv->fd, 0x01, 0x0B, (USHORT)0, (USHORT)iface, 0, NULL,500);
       if (NO_ERROR != rc) {
          usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",iface,rc);
          errorcode = _apiret_to_libusb(rc);
@@ -408,19 +409,22 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
    APIRET rc = NO_ERROR;
+   int errorcode = LIBUSB_SUCCESS;
 
    usbi_dbg(" ");
    if (dpriv->altsetting[iface] != altsetting)
    {
       rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(USHORT)altsetting);
+      //rc = UsbCtrlMessage((USBHANDLE)dpriv->fd, 0x01, 0x0B, (USHORT)altsetting, (USHORT)iface, 0, NULL,500);
       if (NO_ERROR != rc) {
          usbi_dbg("UsbInterfaceSetAltSetting cannot set alternate setting, apiret:%lu",rc);
-         return(_apiret_to_libusb(rc));
+         errorcode = _apiret_to_libusb(rc);
       }
+
       dpriv->altsetting[iface] = altsetting;
       usbi_dbg("UsbInterfaceSetAltSetting interface %u set to alternate setting: %u",iface,altsetting);
    }
-   return (LIBUSB_SUCCESS);
+   return (errorcode);
 }
 
 static int
@@ -578,6 +582,7 @@ static void _call_iso_close(struct libusb_device *dev)
                    if (dpriv->endpoint[i] && dpriv->altsetting[i])
                    {
                       rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)i,(USHORT)0);
+                      //rc = UsbCtrlMessage((USBHANDLE)dpriv->fd, 0x01, 0x0B, (USHORT)0, (USHORT)i, 0, NULL,500);
                       if (NO_ERROR != rc) {
                          usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",i,rc);
                       }
@@ -813,7 +818,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
    int iface = 0;
    int errorcode = LIBUSB_SUCCESS;
    enum libusb_transfer_status status = LIBUSB_TRANSFER_ERROR;
-   HEV hTransferSem = 0U;
+   HEV hEventSem = 0U;
 
 
    usbi_dbg("dev handle: %p, nr = %u, num packets = %u",transfer->dev_handle,transfer->length,transfer->num_iso_packets);
@@ -888,9 +893,9 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          goto cleanup2;
       }
 
-      rc = DosCreateEventSem(NULL,&hTransferSem,DC_SEM_SHARED,FALSE);
+      rc = DosCreateEventSem(NULL,&hEventSem,DC_SEM_SHARED,FALSE);
       if (NO_ERROR != rc) {
-         usbi_dbg("hTransferSem: DosCreateEventSem failed, apiret: %lu",rc);
+         usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
          errorcode = LIBUSB_ERROR_OTHER;
          goto cleanup;
       }
@@ -920,7 +925,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          rc = UsbStartIsoTransfer((USBHANDLE)dpriv->fd,
                                   (UCHAR)transfer->endpoint,
                                   (UCHAR)dpriv->altsetting[iface],
-                                  (ULONG)hTransferSem,
+                                  (ULONG)hEventSem,
                                   (PUCHAR)pIsoResponse,
                                   (PUCHAR)buffer,
                                   (USHORT)packet_len,
@@ -932,7 +937,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          usbi_dbg("UsbStartIsoTransfer rc = %lu",rc);
 
          if (!rc) {
-            rc = DosWaitEventSem(hTransferSem,(ULONG)transfer->timeout);
+            rc = DosWaitEventSem(hEventSem,(ULONG)transfer->timeout);
             if (!rc)
             {
                status = (0 == pIsoResponse->usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
@@ -943,18 +948,18 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
                }
             } else {
                usbi_dbg("DosWaitEventSem failed, apiret: %lu",rc);
-               rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)hTransferSem);
-                    DosWaitEventSem(hTransferSem,(ULONG)transfer->timeout);
+               rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)hEventSem);
+                    DosWaitEventSem(hEventSem,(ULONG)transfer->timeout);
                if (NO_ERROR != rc) {
                   usbi_dbg("UsbCancelTransfer failed, apiret: %lu",rc);
                }
                else
                {
-                  rc = DosWaitEventSem(hTransferSem,(ULONG)transfer->timeout);
+                  rc = DosWaitEventSem(hEventSem,(ULONG)transfer->timeout);
                }
                errorcode = _apiret_to_libusb(rc);
             }
-            rc = DosResetEventSem(hTransferSem,&postCount);
+            rc = DosResetEventSem(hEventSem,&postCount);
             if (ERROR_ALREADY_RESET != rc && NO_ERROR != rc) {
                usbi_dbg("DosResetEventSem failed, apiret: %lu",rc);
             }
@@ -975,7 +980,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          rc = UsbStartIsoTransfer((USBHANDLE)dpriv->fd,
                                   (UCHAR)transfer->endpoint,
                                   (UCHAR)dpriv->altsetting[iface],
-                                  (ULONG)hTransferSem,
+                                  (ULONG)hEventSem,
                                   (PUCHAR)pIsoResponse,
                                   (PUCHAR)buffer,
                                   (USHORT)packet_len,
@@ -987,7 +992,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          usbi_dbg("UsbStartIsoTransfer rc = %lu",rc);
 
          if (!rc) {
-            rc = DosWaitEventSem(hTransferSem,(ULONG)transfer->timeout);
+            rc = DosWaitEventSem(hEventSem,(ULONG)transfer->timeout);
             if (!rc)
             {
                status = (0 == pIsoResponse->usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
@@ -998,26 +1003,26 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
                }
             } else {
                usbi_dbg("DosWaitEventSem failed, apiret: %lu",rc);
-               rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)hTransferSem);
+               rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)hEventSem);
                if (NO_ERROR != rc) {
                   usbi_dbg("UsbCancelTransfer failed, apiret: %lu",rc);
                }
                else
                {
-                  rc = DosWaitEventSem(hTransferSem,(ULONG)transfer->timeout);
+                  rc = DosWaitEventSem(hEventSem,(ULONG)transfer->timeout);
                }
                errorcode = _apiret_to_libusb(rc);
             }
-            rc = DosResetEventSem(hTransferSem,&postCount);
+            rc = DosResetEventSem(hEventSem,&postCount);
             if (ERROR_ALREADY_RESET != rc && NO_ERROR != rc) {
                usbi_dbg("DosResetEventSem failed, apiret: %lu",rc);
             }
          }
       }
 
-      rc = DosCloseEventSem(hTransferSem);
+      rc = DosCloseEventSem(hEventSem);
       if (NO_ERROR != rc) {
-         usbi_dbg("hTransferSem: DosCloseEventSem failed, apiret: %lu",rc);
+         usbi_dbg("hEventSem: DosCloseEventSem failed, apiret: %lu",rc);
       }
 
 cleanup:
