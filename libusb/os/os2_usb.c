@@ -392,7 +392,6 @@ os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
    if (_is_streaming_interface(dev,iface) && dpriv->endpoint[iface] && dpriv->altsetting[iface])
    {
       rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(USHORT)0);
-      //rc = UsbCtrlMessage((USBHANDLE)dpriv->fd, 0x01, 0x0B, (USHORT)0, (USHORT)iface, 0, NULL,500);
       if (NO_ERROR != rc) {
          usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",iface,rc);
          errorcode = _apiret_to_libusb(rc);
@@ -409,22 +408,25 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
    APIRET rc = NO_ERROR;
-   int errorcode = LIBUSB_SUCCESS;
 
    usbi_dbg(" ");
    if (dpriv->altsetting[iface] != altsetting)
    {
+//      uint8_t newsetting=0xFFU;
+
       rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(USHORT)altsetting);
-      //rc = UsbCtrlMessage((USBHANDLE)dpriv->fd, 0x01, 0x0B, (USHORT)altsetting, (USHORT)iface, 0, NULL,500);
       if (NO_ERROR != rc) {
          usbi_dbg("UsbInterfaceSetAltSetting cannot set alternate setting, apiret:%lu",rc);
-         errorcode = _apiret_to_libusb(rc);
+         return(_apiret_to_libusb(rc));
       }
+
+//      check that we can successfully read back the value we just set
+//      rc = UsbInterfaceGetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(PUCHAR)&newsetting);
 
       dpriv->altsetting[iface] = altsetting;
       usbi_dbg("UsbInterfaceSetAltSetting interface %u set to alternate setting: %u",iface,altsetting);
    }
-   return (errorcode);
+   return (LIBUSB_SUCCESS);
 }
 
 static int
@@ -464,7 +466,7 @@ static int
 os2_submit_transfer(struct usbi_transfer *itransfer)
 {
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   int err = 0;
+   int err = LIBUSB_SUCCESS;
 
    usbi_dbg(" ");
 
@@ -496,22 +498,9 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
       break;
    }
 
-//   if (err)
-//   {
-//       return(err);
-//   }
-   //if (err)
-   //{
-   //    transfer->status = LIBUSB_TRANSFER_ERROR;
-   //}
-   //else
-   //{
-   //    transfer->status = LIBUSB_TRANSFER_COMPLETED;
-   //}
-
    usbi_signal_transfer_completion(itransfer);
 
-   return(LIBUSB_SUCCESS);
+   return(err);
 }
 
 static int
@@ -534,10 +523,6 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
 static int
 os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 {
-   //struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-
-   //return(usbi_handle_transfer_completion(itransfer, transfer->status));
-
    return(usbi_handle_transfer_completion(itransfer, LIBUSB_TRANSFER_COMPLETED));
 }
 
@@ -582,7 +567,6 @@ static void _call_iso_close(struct libusb_device *dev)
                    if (dpriv->endpoint[i] && dpriv->altsetting[i])
                    {
                       rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)i,(USHORT)0);
-                      //rc = UsbCtrlMessage((USBHANDLE)dpriv->fd, 0x01, 0x0B, (USHORT)0, (USHORT)i, 0, NULL,500);
                       if (NO_ERROR != rc) {
                          usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",i,rc);
                       }
@@ -825,7 +809,6 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
 
 
    itransfer->transferred = 0;
-//   transfer->status = LIBUSB_TRANSFER_ERROR;
 
    do
    {
@@ -840,9 +823,9 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       if (transfer->num_iso_packets)
       {
          for (i=0,length=0;i<(unsigned int)transfer->num_iso_packets;i++,length += packet_len) {
-         packet_len = transfer->iso_packet_desc[i].length;
-         transfer->iso_packet_desc[i].actual_length = 0;
-         transfer->iso_packet_desc[i].status        = LIBUSB_TRANSFER_ERROR;
+            packet_len = transfer->iso_packet_desc[i].length;
+            transfer->iso_packet_desc[i].actual_length = 0;
+            transfer->iso_packet_desc[i].status        = LIBUSB_TRANSFER_ERROR;
          } /* endfor */
          if (transfer->length < length) {
             usbi_dbg("overall transfer length (%u) < sum packet lengths (%u)",transfer->length, length);
