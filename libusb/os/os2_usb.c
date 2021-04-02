@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2013 Paul Smedley <paul@smedley.id.au>
+ * Heavily influenced by openbsd_usb.c
+ * & the libusb 0.1.x port Copyright (c) 2006 Richard L Walsh
  * Copyright (c) 2021 Lars Erdmann
  *
  * This library is free software; you can redistribute it and/or
