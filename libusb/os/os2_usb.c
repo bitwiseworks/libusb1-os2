@@ -149,6 +149,7 @@ os2_get_device_list(struct libusb_context * ctx,
    ULONG     len;
    struct libusb_device *dev;
    struct device_priv *dpriv;
+   pusb_device_descriptor pDeviceDescriptor = NULL;
 
    unsigned char scratchBuf[LIBUSB_DT_DEVICE_SIZE+4096];
    GETDEVINFODATA info;
@@ -205,7 +206,26 @@ os2_get_device_list(struct libusb_context * ctx,
                                                    /* but only non-hub devices are exposed by USBD.SYS (and therefore USBRESMG.SYS) */
                                                    /* therefore, it is impossible to query the full bus hierarchy */
 
-         memcpy(&dev->device_descriptor,scratchBuf, LIBUSB_DT_DEVICE_SIZE);
+         /*
+          * the libusb exposed device descriptor structure
+          * is not necessarily byte packed. We therefore have
+          * to copy over each individual field
+          */
+         pDeviceDescriptor = (pusb_device_descriptor)scratchBuf;
+         dev->device_descriptor.bLength = pDeviceDescriptor->bLength;
+         dev->device_descriptor.bDescriptorType = pDeviceDescriptor->bDescriptorType;
+         dev->device_descriptor.bcdUSB = pDeviceDescriptor->bcdUSB;
+         dev->device_descriptor.bDeviceClass = pDeviceDescriptor->bDeviceClass;
+         dev->device_descriptor.bDeviceSubClass = pDeviceDescriptor->bDeviceSubClass;
+         dev->device_descriptor.bDeviceProtocol = pDeviceDescriptor->bDeviceProtocol;
+         dev->device_descriptor.bMaxPacketSize0 = pDeviceDescriptor->bMaxPacketSize0;
+         dev->device_descriptor.idVendor = pDeviceDescriptor->idVendor;
+         dev->device_descriptor.idProduct = pDeviceDescriptor->idProduct;
+         dev->device_descriptor.bcdDevice = pDeviceDescriptor->bcdDevice;
+         dev->device_descriptor.iManufacturer = pDeviceDescriptor->iManufacturer;
+         dev->device_descriptor.iProduct = pDeviceDescriptor->iProduct;
+         dev->device_descriptor.iSerialNumber = pDeviceDescriptor->iSerialNumber;
+         dev->device_descriptor.bNumConfigurations = pDeviceDescriptor->bNumConfigurations;
          usbi_localize_device_descriptor(&dev->device_descriptor);
 
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
