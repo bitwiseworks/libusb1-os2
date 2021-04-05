@@ -660,11 +660,13 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
    struct libusb_transfer *transfer;
    struct libusb_control_setup *setup;
    struct device_priv *dpriv;
+   USHORT length;
    APIRET    rc;
 
    transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    dpriv = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
    setup = (struct libusb_control_setup *)transfer->buffer;
+   length = (USHORT)setup->wLength;
 
    usbi_dbg("usbhandle = %d, type %d request %d value %d index %d length %d timeout %d",
        dpriv->fd, setup->bmRequestType, setup->bRequest,
@@ -672,9 +674,9 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
        libusb_le16_to_cpu(setup->wIndex),
        libusb_le16_to_cpu(setup->wLength), transfer->timeout);
 
-   rc = UsbCtrlMessage( (USBHANDLE) dpriv->fd, (UCHAR)setup->bmRequestType,
+   rc = UsbCtrlTransfer( (USBHANDLE) dpriv->fd, 0, 0, (UCHAR)setup->bmRequestType,
        (UCHAR)setup->bRequest, (USHORT)setup->wValue, (USHORT)setup->wIndex,
-       (USHORT)setup->wLength, transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE, (ULONG)transfer->timeout);
+       &length, transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE, (ULONG)transfer->timeout);
 
 
    if (rc) {
@@ -682,7 +684,7 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
       return(LIBUSB_ERROR_IO);
    }
 
-   itransfer->transferred = setup->wLength; /* not right, should be length actually transferred */
+   itransfer->transferred = length;
    usbi_dbg("transferred %d", itransfer->transferred);
    return(LIBUSB_SUCCESS);
 }
