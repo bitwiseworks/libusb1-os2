@@ -52,22 +52,3 @@ struct transfer_priv
    USBCALLS_MY_ISO_RSP IsoResponse;         /* structure to manage individual iso packets, used only for iso */
 };
 
-#pragma pack(1)
-typedef struct usb_device_descriptor {
-  unsigned char bLength;
-  unsigned char bDescriptorType;
-  unsigned short bcdUSB;
-  unsigned char bDeviceClass;
-  unsigned char bDeviceSubClass;
-  unsigned char bDeviceProtocol;
-  unsigned char bMaxPacketSize0;
-  unsigned short idVendor;
-  unsigned short idProduct;
-  unsigned short bcdDevice;
-  unsigned char iManufacturer;
-  unsigned char iProduct;
-  unsigned char iSerialNumber;
-  unsigned char bNumConfigurations;
-} usb_device_descriptor, *pusb_device_descriptor;
-#pragma pack()
-

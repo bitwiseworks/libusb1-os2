@@ -149,7 +149,7 @@ os2_get_device_list(struct libusb_context * ctx,
    ULONG     len;
    struct libusb_device *dev;
    struct device_priv *dpriv;
-   pusb_device_descriptor pDeviceDescriptor = NULL;
+   struct usbi_device_descriptor *pDeviceDescriptor = NULL;
 
    unsigned char scratchBuf[LIBUSB_DT_DEVICE_SIZE+4096];
    GETDEVINFODATA info;
@@ -211,7 +211,7 @@ os2_get_device_list(struct libusb_context * ctx,
           * is not necessarily byte packed. We therefore have
           * to copy over each individual field
           */
-         pDeviceDescriptor = (pusb_device_descriptor)scratchBuf;
+         pDeviceDescriptor = (struct usbi_device_descriptor *)scratchBuf;
          dev->device_descriptor.bLength = pDeviceDescriptor->bLength;
          dev->device_descriptor.bDescriptorType = pDeviceDescriptor->bDescriptorType;
          dev->device_descriptor.bcdUSB = pDeviceDescriptor->bcdUSB;
