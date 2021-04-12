@@ -49,6 +49,7 @@ struct device_priv {
 
 struct transfer_priv
 {
-   USBCALLS_MY_ISO_RSP IsoResponse;         /* structure to manage individual iso packets, used only for iso */
+   HEV                 hEventSem;           /* used to wait for termination event, used for all transfers */
+   USBCALLS_MY_ISO_RSP Response;            /* structure to manage individual transfers, pick maximum size to support iso */
 };
 
