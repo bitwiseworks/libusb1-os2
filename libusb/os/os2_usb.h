@@ -18,6 +18,10 @@
 
 #define MAX_NUM_ISO_PACKETS 4096
 
+#define PACKET_SIZE_MASK            0x07FFU
+#define PACKET_MUL_MASK             0x1800U
+#define PACKET_MUL_SHIFT            11
+
 #pragma pack(1)
 typedef struct _GETDEVINFODATA_
 {
@@ -31,17 +35,17 @@ typedef struct _GETDEVINFODATA_
    unsigned long      rmDevHandle;         /* (08) Resource Manager device handle */
 } GETDEVINFODATA, *PGETDEVINFO;
 
-typedef struct _USBCALLS_MY_ISO_RSP_
+typedef struct _USBCALLS_MY_RSP_
 { unsigned short usStatus;
   unsigned short usDataLength;
   unsigned short usFrameSize[MAX_NUM_ISO_PACKETS];
-} USBCALLS_MY_ISO_RSP, *PUSBCALLS_MY_ISO_RSP;
+} USBCALLS_MY_RSP, *PUSBCALLS_MY_RSP;
 #pragma pack()
 
 struct device_priv {
    int fd;                                  /* device file descriptor */
-   ULONG rmDevHandle;                       /* the OS/2 Resource Manager device handle, a GUID */
-   struct libusb_config_descriptor *curr_config_descriptor;
+   unsigned long rmDevHandle;               /* the OS/2 Resource Manager device handle, a GUID */
+   struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */
    uint8_t altsetting[USB_MAXINTERFACES];   /* remembers what alternate setting was chosen for a given interface */
    uint8_t endpoint[USB_MAXINTERFACES];     /* remembers what endpoint was chosen for a given interface */
    unsigned char cdesc[4096];               /* active config descriptor */
@@ -50,6 +54,6 @@ struct device_priv {
 struct transfer_priv
 {
    HEV                 hEventSem;           /* used to wait for termination event, used for all transfers */
-   USBCALLS_MY_ISO_RSP Response;            /* structure to manage individual transfers, pick maximum size to support iso */
+   USBCALLS_MY_RSP     Response;            /* structure to manage individual transfers, extended by frame size list to support iso */
 };
 
