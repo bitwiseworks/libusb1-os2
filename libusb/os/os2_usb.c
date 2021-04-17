@@ -1,7 +1,4 @@
 /*
- * Copyright (c) 2013 Paul Smedley <paul@smedley.id.au>
- * Heavily influenced by openbsd_usb.c
- * & the libusb 0.1.x port Copyright (c) 2006 Richard L Walsh
  * Copyright (c) 2021 Lars Erdmann
  *
  * This library is free software; you can redistribute it and/or
@@ -160,7 +157,7 @@ os2_get_device_list(struct libusb_context * ctx,
 
    rc = UsbQueryNumberDevices( &cntDev);
    if (rc) {
-      usbi_dbg( "unable to query number of USB devices - rc= %x", (int)rc);
+      usbi_dbg( "unable to query number of USB devices - rc= %lu", rc);
       return(LIBUSB_ERROR_IO);
    }
    usbi_dbg( "%lu devices detected", cntDev);
@@ -169,14 +166,14 @@ os2_get_device_list(struct libusb_context * ctx,
       len = sizeof(info);
       rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
       if (rc) {
-         usbi_dbg( "unable to query device info - device= %d  rc= %x",   (int)ctr, (int)rc);
+         usbi_dbg( "unable to query device info - device= %lu  rc= %lu", ctr, rc);
          return(LIBUSB_ERROR_IO);
       }
 
       len = sizeof(scratchBuf);
       rc = UsbQueryDeviceReport( ctr, &len, scratchBuf);
       if (rc) {
-         usbi_dbg( "unable to query device report - device= %d  rc= %x",   (int)ctr, (int)rc);
+         usbi_dbg( "unable to query device report - device= %lu  rc= %lu", ctr, rc);
          return(LIBUSB_ERROR_IO);
       }
 
@@ -230,7 +227,7 @@ os2_get_device_list(struct libusb_context * ctx,
          usbi_localize_device_descriptor(&dev->device_descriptor);
 
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
-         dpriv->fd = -1;
+         dpriv->fd = -1U;
          dpriv->rmDevHandle = info.rmDevHandle;     /* under OS/2, the Resource Manager device handle is a GUID, well suited to track a device */
          memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
          memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
@@ -270,10 +267,10 @@ os2_open(struct libusb_device_handle *handle)
 
       if (rc)
       {
-         usbi_dbg( "unable to open device - id= %x:%x  rc= %x",
+         usbi_dbg( "unable to open device - id= %#04x:%#04x  rc= %lu",
             dev->device_descriptor.idVendor,
-            dev->device_descriptor.idProduct, (int)rc);
-         dpriv->fd = -1;
+            dev->device_descriptor.idProduct, rc);
+         dpriv->fd = -1U;
          return( _apiret_to_libusb(rc));
       }
 
@@ -284,7 +281,7 @@ os2_open(struct libusb_device_handle *handle)
       usbi_dbg("UsbDeviceSetConfiguration: rc = %lu", rc);
    } /* endif */
 
-   usbi_dbg("fd %d", dpriv->fd);
+   usbi_dbg("fd %#.8lx", dpriv->fd);
 
    return(LIBUSB_SUCCESS);
 }
@@ -296,18 +293,18 @@ os2_close(struct libusb_device_handle *handle)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET    rc;
 
-   usbi_dbg("close: fd %d", dpriv->fd);
+   usbi_dbg("close: fd %#.8lx", dpriv->fd);
 
    if (dev->refcnt == 2) {
-      rc = UsbClose( (USBHANDLE)dpriv->fd);
+      rc = UsbClose(dpriv->fd);
       if (rc) {
-         usbi_dbg( "unable to close device - id= %x/%x  handle= %x  rc= %d",
+         usbi_dbg( "unable to close device - id= %#04x:%#04x  fd= %#.8lx  rc= %lu",
              dev->device_descriptor.idVendor,
              dev->device_descriptor.idProduct,
-             dpriv->fd, (int)rc);
+             dpriv->fd, rc);
       }
 
-      dpriv->fd = -1;
+      dpriv->fd = -1U;
    } /* endif */
 }
 
@@ -355,14 +352,14 @@ os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
 
    rc = UsbQueryNumberDevices( &cntDev);
    if (rc) {
-      usbi_dbg( "unable to query number of USB devices - rc= %x", (int)rc);
+      usbi_dbg( "unable to query number of USB devices - rc= %lu", rc);
       return(LIBUSB_ERROR_IO);
    }
    for (ctr = 1; ctr <= cntDev; ctr++) {
       len = sizeof(info);
       rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
       if (rc) {
-         usbi_dbg( "unable to query device info -  rc= %x", (int)rc);
+         usbi_dbg( "unable to query device info -  rc= %lu", rc);
          return(LIBUSB_ERROR_IO);
       } /* endif */
       if (info.rmDevHandle == dpriv->rmDevHandle) {
@@ -382,10 +379,10 @@ os2_set_configuration(struct libusb_device_handle *handle, int config)
 
    usbi_dbg("configuration %d", config);
 
-   rc = UsbDeviceSetConfiguration( (USBHANDLE)dpriv->fd, (USHORT)config);
+   rc = UsbDeviceSetConfiguration( dpriv->fd, (USHORT)config);
    if (rc) {
-      usbi_dbg( "unable to set configuration - config= %d  rc= %x",
-         config, (int)rc);
+      usbi_dbg( "unable to set configuration - config= %d  rc= %lu",
+         config, rc);
       return(LIBUSB_ERROR_IO);
    }
 
@@ -415,7 +412,7 @@ os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    if (_is_streaming_interface(dev,iface) && dpriv->endpoint[iface] && dpriv->altsetting[iface])
    {
-      rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(USHORT)0);
+      rc = UsbInterfaceSetAltSetting(dpriv->fd,iface,0);
       if (NO_ERROR != rc) {
          usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",iface,rc);
          errorcode = _apiret_to_libusb(rc);
@@ -437,14 +434,14 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
    usbi_dbg(" ");
 //      uint8_t newsetting=0xFFU;
 
-   rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(USHORT)altsetting);
+   rc = UsbInterfaceSetAltSetting(dpriv->fd,iface,altsetting);
    if (NO_ERROR != rc) {
       usbi_dbg("UsbInterfaceSetAltSetting cannot set alternate setting, apiret:%lu",rc);
       return(_apiret_to_libusb(rc));
    }
 
 //      check that we can successfully read back the value we just set
-//      rc = UsbInterfaceGetAltSetting((USBHANDLE)dpriv->fd,(USHORT)iface,(PUCHAR)&newsetting);
+//      rc = UsbInterfaceGetAltSetting(dpriv->fd,iface,(PUCHAR)&newsetting);
 
    if (_is_streaming_interface(dev,iface))
    {
@@ -453,16 +450,16 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
           uint16_t packet_len = 0;
           uint8_t endpoint = _endpoint_for_alternate_setting(dev,iface,altsetting,&packet_len);
 
-          rc = UsbIsoOpen((USBHANDLE)dpriv->fd,
-                             (UCHAR)endpoint,
-                             (UCHAR)altsetting,
+          rc = UsbIsoOpen(dpriv->fd,
+                             endpoint,
+                             altsetting,
                              2U, /* number of HC internal ISO buffer management structures */
-                             (USHORT)packet_len);
+                             packet_len);
           usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,altsetting,endpoint,rc);
        }
        else
        {
-          rc = UsbIsoClose((USBHANDLE)dpriv->fd,(UCHAR)dpriv->endpoint[iface],(UCHAR)dpriv->altsetting[iface]);
+          rc = UsbIsoClose(dpriv->fd,dpriv->endpoint[iface],dpriv->altsetting[iface]);
           usbi_dbg("UsbIsoClose for if %#02x, alt %#02x, ep %#02x, apiret: %lu",iface,dpriv->altsetting[iface],dpriv->endpoint[iface],rc);
        }
    }
@@ -479,7 +476,7 @@ os2_clear_halt(struct libusb_device_handle *handle, unsigned char endpoint)
    APIRET rc = LIBUSB_SUCCESS;
 
    usbi_dbg(" ");
-   rc = UsbEndpointClearHalt((USBHANDLE)dpriv->fd,(USHORT)endpoint);
+   rc = UsbEndpointClearHalt(dpriv->fd,endpoint);
    return(_apiret_to_libusb(rc));
 }
 
@@ -576,6 +573,7 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
     */
    if (transfer->type == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS)
    {
+      usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
       /*
        * because we don't know any better, pick the status of the first transferred packet
        */
@@ -602,6 +600,7 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
           usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
           itransfer->transferred = tpriv->Response.usDataLength;
+          usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
           return(usbi_handle_transfer_completion(itransfer, (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR));
       }
    }
@@ -638,7 +637,7 @@ static void _call_iso_close(struct libusb_device *dev)
    struct device_priv *dpriv               = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_config_descriptor *config    = dpriv->curr_config_descriptor;
    APIRET rc = NO_ERROR;
-   int i=0,a=0,e=0;
+   unsigned short i=0,a=0,e=0;
 
    for (i=0;i<config->bNumInterfaces;i++) {
       for (a=0;a<config->interface[i].num_altsetting;a++) {
@@ -648,7 +647,7 @@ static void _call_iso_close(struct libusb_device *dev)
                 (config->interface[i].altsetting[a].endpoint[e].bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
                    if (dpriv->endpoint[i] && dpriv->altsetting[i])
                    {
-                      rc = UsbInterfaceSetAltSetting((USBHANDLE)dpriv->fd,(USHORT)i,(USHORT)0);
+                      rc = UsbInterfaceSetAltSetting(dpriv->fd,i,0);
                       if (NO_ERROR != rc) {
                          usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",i,rc);
                       }
@@ -753,10 +752,10 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("DosCreateEventSem rc = %lu",rc);
 
    tpriv->Response.usDataLength = setup->wLength;
-   rc = UsbStartCtrlTransfer(   (USBHANDLE) dpriv->fd, 0, 0, setup->bmRequestType,
+   rc = UsbStartCtrlTransfer(   dpriv->fd, 0, 0, setup->bmRequestType,
                                 setup->bRequest,setup->wValue,setup->wIndex,
                                 (PUCHAR)&tpriv->Response, transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE, tpriv->hEventSem);
-   usbi_dbg("UsbStartCtrlTransfer with dh = %u",(unsigned int)dpriv->fd);
+   usbi_dbg("UsbStartCtrlTransfer with fd = %#.8lx",dpriv->fd);
    usbi_dbg("UsbStartCtrlTransfer type %#02x request %#02x value %d index %d length %d",setup->bmRequestType,setup->bRequest,setup->wValue,setup->wIndex,setup->wLength);
    usbi_dbg("UsbStartCtrlTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartCtrlTransfer rc = %lu",rc);
@@ -780,8 +779,8 @@ _sync_bulk_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("DosCreateEventSem rc = %lu",rc);
 
    tpriv->Response.usDataLength = (USHORT)transfer->length;
-   rc = UsbStartDataTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
-   usbi_dbg("UsbStartDataTransfer with dh = %u",(unsigned int)dpriv->fd);
+   rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
+   usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
    usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
    usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
@@ -804,8 +803,8 @@ _sync_irq_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("DosCreateEventSem rc = %lu",rc);
 
    tpriv->Response.usDataLength = (USHORT)transfer->length;
-   rc = UsbStartDataTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
-   usbi_dbg("UsbStartDataTransfer with dh = %u",(unsigned int)dpriv->fd);
+   rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
+   usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
    usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
    usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
@@ -920,15 +919,15 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          tpriv->Response.usStatus = 0;
          tpriv->Response.usDataLength = (USHORT)length;
 
-         rc = UsbStartIsoTransfer((USBHANDLE)dpriv->fd,
-                                  (UCHAR)transfer->endpoint,
-                                  (UCHAR)dpriv->altsetting[iface],
-                                  (ULONG)tpriv->hEventSem,
+         rc = UsbStartIsoTransfer(dpriv->fd,
+                                  transfer->endpoint,
+                                  dpriv->altsetting[iface],
+                                  tpriv->hEventSem,
                                   (PUCHAR)&tpriv->Response,
-                                  (PUCHAR)buffer,
+                                  buffer,
                                   (USHORT)packet_len,
                                   (USHORT)num_max_packets_per_execution);
-         usbi_dbg("UsbStartIsoTransfer with dh = %u, pass = %u",(unsigned int)dpriv->fd,i);
+         usbi_dbg("UsbStartIsoTransfer with fd = %#.8lx, pass = %i",dpriv->fd,i);
          usbi_dbg("UsbStartIsoTransfer with iso ep = %#02x",transfer->endpoint);
          usbi_dbg("UsbStartIsoTransfer with usbcalls_timeout = %d",transfer->timeout);
          usbi_dbg("UsbStartIsoTransfer num iso packets %u, packet len %u, buffer len %u",num_max_packets_per_execution,packet_len,length);
@@ -946,8 +945,8 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
                }
             } else {
                usbi_dbg("DosWaitEventSem failed, apiret: %lu",rc);
-               rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)tpriv->hEventSem);
-                    DosWaitEventSem(tpriv->hEventSem,(ULONG)transfer->timeout);
+               rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
+                    DosWaitEventSem(tpriv->hEventSem,transfer->timeout);
                if (NO_ERROR != rc) {
                   usbi_dbg("UsbCancelTransfer failed, apiret: %lu",rc);
                }
@@ -975,15 +974,15 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          tpriv->Response.usStatus = 0;
          tpriv->Response.usDataLength = (USHORT)length;
 
-         rc = UsbStartIsoTransfer((USBHANDLE)dpriv->fd,
-                                  (UCHAR)transfer->endpoint,
-                                  (UCHAR)dpriv->altsetting[iface],
-                                  (ULONG)tpriv->hEventSem,
+         rc = UsbStartIsoTransfer(dpriv->fd,
+                                  transfer->endpoint,
+                                  dpriv->altsetting[iface],
+                                  tpriv->hEventSem,
                                   (PUCHAR)&tpriv->Response,
-                                  (PUCHAR)buffer,
+                                  buffer,
                                   (USHORT)packet_len,
                                   (USHORT)num_remaining_packets);
-         usbi_dbg("UsbStartIsoTransfer with dh = %u, pass = %u",(unsigned int)dpriv->fd,i);
+         usbi_dbg("UsbStartIsoTransfer with fd = %#.8lx, pass = %u",dpriv->fd,i);
          usbi_dbg("UsbStartIsoTransfer with iso ep = %#02x",transfer->endpoint);
          usbi_dbg("UsbStartIsoTransfer with usbcalls_timeout = %d",transfer->timeout);
          usbi_dbg("UsbStartIsoTransfer num iso packets %u, packet len %u, buffer len %u",num_remaining_packets,packet_len,length);
@@ -1001,7 +1000,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
                }
             } else {
                usbi_dbg("DosWaitEventSem failed, apiret: %lu",rc);
-               rc = UsbCancelTransfer((USBHANDLE)dpriv->fd,(UCHAR)transfer->endpoint,(UCHAR)dpriv->altsetting[iface],(ULONG)tpriv->hEventSem);
+               rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
                if (NO_ERROR != rc) {
                   usbi_dbg("UsbCancelTransfer failed, apiret: %lu",rc);
                }
@@ -1026,7 +1025,6 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       }
    } while (0); /* enddo */
 
-   usbi_dbg("itransfer->transferred = %d, nr =%d",itransfer->transferred, transfer->length);
    return(errorcode);
 }
 

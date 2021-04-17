@@ -43,7 +43,7 @@ typedef struct _USBCALLS_MY_RSP_
 #pragma pack()
 
 struct device_priv {
-   int fd;                                  /* device file descriptor */
+   unsigned long fd;                        /* device file descriptor */
    unsigned long rmDevHandle;               /* the OS/2 Resource Manager device handle, a GUID */
    struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */
    uint8_t altsetting[USB_MAXINTERFACES];   /* remembers what alternate setting was chosen for a given interface */
