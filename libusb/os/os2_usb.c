@@ -537,7 +537,7 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
       err = LIBUSB_ERROR_NOT_SUPPORTED;
       break;
    }
-   usbi_signal_transfer_completion(itransfer);
+   if (!err) usbi_signal_transfer_completion(itransfer);
    return(err);
 }
 
@@ -745,7 +745,6 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
    struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    struct device_priv *dpriv          = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
    struct libusb_control_setup *setup = (struct libusb_control_setup *)transfer->buffer;
-   int errorcode = LIBUSB_SUCCESS;
    APIRET rc = NO_ERROR;
 
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
@@ -760,7 +759,11 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("UsbStartCtrlTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartCtrlTransfer rc = %lu",rc);
 
-   return(errorcode);
+   if (rc)
+   {
+       DosCloseEventSem(tpriv->hEventSem);
+   }
+   return(_apiret_to_libusb(rc));
 }
 
 
@@ -772,7 +775,6 @@ _sync_bulk_transfer(struct usbi_transfer *itransfer)
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
-   int errorcode = LIBUSB_SUCCESS;
    APIRET rc = NO_ERROR;
 
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
@@ -785,7 +787,11 @@ _sync_bulk_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
 
-   return(errorcode);
+   if (rc)
+   {
+       DosCloseEventSem(tpriv->hEventSem);
+   }
+   return(_apiret_to_libusb(rc));
 }
 
 static int
@@ -796,7 +802,6 @@ _sync_irq_transfer(struct usbi_transfer *itransfer)
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
-   int errorcode = LIBUSB_SUCCESS;
    APIRET rc = NO_ERROR;
 
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
@@ -809,7 +814,11 @@ _sync_irq_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
 
-   return(errorcode);
+   if (rc)
+   {
+       DosCloseEventSem(tpriv->hEventSem);
+   }
+   return(_apiret_to_libusb(rc));
 }
 
 static int
@@ -828,6 +837,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
    unsigned int num_max_packets_per_execution = 0;
    unsigned int num_max_executions = 0;
    unsigned int num_remaining_packets = 0;
+   unsigned int num_iso_packets  = 0;
    unsigned char *buffer = NULL;
    int length = 0;
    ULONG postCount = 0;
@@ -864,11 +874,13 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
          }
          /* endif */
          packet_len = transfer->iso_packet_desc[0].length;
+         num_iso_packets = transfer->num_iso_packets;
       }
       else
       {
           length = transfer->length;
           packet_len = length;
+          num_iso_packets = 1;
       }
 
       iface = _interface_for_endpoint(dev,transfer->endpoint);
@@ -900,7 +912,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
        */
       num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
       num_max_executions = length / (num_max_packets_per_execution * packet_len);
-      num_remaining_packets = transfer->num_iso_packets - (num_max_packets_per_execution * num_max_executions);
+      num_remaining_packets = num_iso_packets - (num_max_packets_per_execution * num_max_executions);
 
 
       /*
