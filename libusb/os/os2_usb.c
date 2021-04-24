@@ -251,6 +251,7 @@ void AsyncDataHandlingThread(void *arg)
     ULONG bytesRead = 0;
     BYTE prio = 0;
     PVOID pdata = NULL;
+    ULONG timeout = 0;
 
     do
     {
@@ -270,7 +271,7 @@ void AsyncDataHandlingThread(void *arg)
             switch (transfer->type) {
             case LIBUSB_TRANSFER_TYPE_BULK:
             case LIBUSB_TRANSFER_TYPE_INTERRUPT:
-#if 0
+               timeout = transfer->timeout ? transfer->timeout : SEM_INDEFINITE_WAIT;
                rc = DosWaitEventSem(tpriv->hEventSem,timeout);
                usbi_dbg("DosWaitEventSem with timeout %lu, rc = %lu",timeout, rc);
                if (ERROR_TIMEOUT == rc)
@@ -287,7 +288,6 @@ void AsyncDataHandlingThread(void *arg)
                    tpriv->status = LIBUSB_TRANSFER_TIMED_OUT;
                    usbi_signal_transfer_completion(itransfer);
                }
-#endif
 
                rc = DosResetEventSem(tpriv->hEventSem,&postCount);
                usbi_dbg("DosResetEventSem with post count %lu,  rc = %lu",postCount,rc);
