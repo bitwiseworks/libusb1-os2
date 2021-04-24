@@ -22,6 +22,8 @@
 #define PACKET_MUL_MASK             0x1800U
 #define PACKET_MUL_SHIFT            11
 
+#define MAX_TRANSFER_SIZE           32768
+
 #pragma pack(1)
 typedef struct _GETDEVINFODATA_
 {
@@ -53,6 +55,9 @@ struct device_priv {
 
 struct transfer_priv
 {
+   int                 ToProcess;
+   int                 Processed;
+   enum libusb_transfer_status status;
    HEV                 hEventSem;           /* used to wait for termination event, used for all transfers */
    USBCALLS_MY_RSP     Response;            /* structure to manage individual transfers, extended by frame size list to support iso */
 };

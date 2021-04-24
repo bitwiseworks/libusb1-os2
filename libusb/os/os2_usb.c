@@ -39,6 +39,14 @@
 #include "libusbi.h"
 #include "os2_usb.h"
 
+
+unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag);
+extern int  _CRT_init(void);
+extern void _CRT_term(void);
+extern void __ctordtorInit(void);
+extern void __ctordtorTerm(void);
+void AsyncTransferHandlingThread(void *arg);
+
 /*
  * Backend functions
  */
@@ -81,8 +89,7 @@ static int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint);
 uint8_t _endpoint_for_alternate_setting(struct libusb_device *dev,uint8_t iface, uint8_t altsetting, uint16_t *ppacket_len);
 static int _apiret_to_libusb(ULONG);
 static int _sync_control_transfer(struct usbi_transfer *);
-static int _sync_bulk_transfer(struct usbi_transfer *);
-static int _sync_irq_transfer(struct usbi_transfer *);
+static int _sync_data_transfer(struct usbi_transfer *);
 static int _sync_iso_transfer(struct usbi_transfer *);
 
 
@@ -136,6 +143,192 @@ const struct usbi_os_backend usbi_backend = {
    0,                            /* handle private data */
    sizeof(struct transfer_priv)  /* transfer private data */
 };
+
+int gAsyncTransferHandlingThreadId = 0;
+HQUEUE ghQueue = NULLHANDLE;
+
+
+
+unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
+{
+    UNUSED(hmod);
+
+    if (0 == flag)
+    {
+        PTIB ptib = NULL;
+        PPIB ppib = NULL;
+        CHAR pszQueueName[64];
+
+        if (_CRT_init())
+        {
+            return 0;
+        }
+        DosGetInfoBlocks(&ptib,&ppib);
+        sprintf(pszQueueName,"\\QUEUES\\LIBUSB\\%lu\\TRANSFER.QUE",ppib->pib_ulpid);
+        if (NO_ERROR != DosCreateQueue(&ghQueue,QUE_FIFO,(PCSZ)pszQueueName))
+        {
+            _CRT_term();
+            return 0;
+        }
+        gAsyncTransferHandlingThreadId = _beginthread(AsyncTransferHandlingThread,NULL,0,NULL);
+        if (-1 == gAsyncTransferHandlingThreadId)
+        {
+            DosCloseQueue(ghQueue);
+            _CRT_term();
+            return 0;
+        }
+    }
+    else
+    {
+        DosCloseQueue(ghQueue);
+        _CRT_term();
+    }
+    return 1;
+}
+
+
+
+
+void AsyncTransferHandlingThread(void *arg)
+{
+    UNUSED(arg);
+
+    struct usbi_transfer *itransfer = NULL;
+    struct transfer_priv *tpriv = NULL;
+    struct libusb_transfer *transfer = NULL;
+    struct libusb_device *dev = NULL;
+    struct device_priv *dpriv = NULL;
+    APIRET rc = NO_ERROR;
+    ULONG postCount = 0;
+    REQUESTDATA request;
+    ULONG bytesRead = 0;
+    BYTE prio = 0;
+    PVOID pdata = NULL;
+
+    do
+    {
+        rc = DosReadQueue(ghQueue,&request,&bytesRead,&pdata,0,DCWW_WAIT,&prio,0);
+        usbi_dbg("DosReadQueue rc: %lu",rc);
+        if (NO_ERROR == rc)
+        {
+            itransfer    = (struct usbi_transfer *)request.ulData;
+            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+            transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+            dev          = transfer->dev_handle->dev;
+            dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
+            postCount    = 0;
+
+            usbi_dbg("transfer: %p",transfer);
+
+            switch (transfer->type) {
+            case LIBUSB_TRANSFER_TYPE_CONTROL:
+#if 0
+               rc = DosWaitEventSem(tpriv->hEventSem,timeout);
+               usbi_dbg("DosWaitEventSem with timeout %lu, rc = %lu",timeout, rc);
+               if (ERROR_TIMEOUT == rc)
+               {
+                   int iface = _interface_for_endpoint(dev,transfer->endpoint);
+
+                   rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
+                   usbi_dbg("UsbCancelTransfer rc = %lu",rc);
+                   if (NO_ERROR == rc)
+                   {
+                      rc = DosWaitEventSem(tpriv->hEventSem,timeout);
+                   }
+                   rc = DosCloseEventSem(tpriv->hEventSem);
+                   tpriv->status = LIBUSB_TRANSFER_TIMED_OUT;
+                   usbi_signal_transfer_completion(itransfer);
+               }
+#endif
+
+               rc = DosResetEventSem(tpriv->hEventSem,&postCount);
+               usbi_dbg("DosResetEventSem with post count %lu,  rc = %lu",postCount,rc);
+
+               if (postCount)
+               {
+                   tpriv->Processed += tpriv->Response.usDataLength;
+
+                   rc = DosCloseEventSem(tpriv->hEventSem);
+                   usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+                   itransfer->transferred = tpriv->Processed;
+                   usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+                   usbi_signal_transfer_completion(itransfer);
+               }
+               else
+               {
+                   rc = DosSleep(1);
+                   rc = DosWriteQueue(ghQueue,(ULONG)itransfer,0,NULL,0);
+               }
+               break;
+
+            case LIBUSB_TRANSFER_TYPE_BULK:
+            case LIBUSB_TRANSFER_TYPE_INTERRUPT:
+#if 0
+               rc = DosWaitEventSem(tpriv->hEventSem,timeout);
+               usbi_dbg("DosWaitEventSem with timeout %lu, rc = %lu",timeout, rc);
+               if (ERROR_TIMEOUT == rc)
+               {
+                   int iface = _interface_for_endpoint(dev,transfer->endpoint);
+
+                   rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
+                   usbi_dbg("UsbCancelTransfer rc = %lu",rc);
+                   if (NO_ERROR == rc)
+                   {
+                      rc = DosWaitEventSem(tpriv->hEventSem,timeout);
+                   }
+                   rc = DosCloseEventSem(tpriv->hEventSem);
+                   tpriv->status = LIBUSB_TRANSFER_TIMED_OUT;
+                   usbi_signal_transfer_completion(itransfer);
+               }
+#endif
+
+               rc = DosResetEventSem(tpriv->hEventSem,&postCount);
+               usbi_dbg("DosResetEventSem with post count %lu,  rc = %lu",postCount,rc);
+
+               if (postCount)
+               {
+                   tpriv->Processed += tpriv->Response.usDataLength;
+
+                   if (tpriv->Processed < transfer->length)
+                   {
+                       int diff = transfer->length - tpriv->Processed;
+                       tpriv->ToProcess = diff < MAX_TRANSFER_SIZE ? diff : MAX_TRANSFER_SIZE;
+
+                       tpriv->Response.usDataLength = (USHORT)tpriv->ToProcess;
+                       rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer+tpriv->Processed,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
+                       usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
+                       usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
+                       usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
+                       usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
+
+                       rc = DosWriteQueue(ghQueue,(ULONG)itransfer,0,NULL,0);
+                   }
+                   else
+                   {
+                      rc = DosCloseEventSem(tpriv->hEventSem);
+                      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+                      itransfer->transferred = tpriv->Processed;
+                      usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+                      tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
+                      usbi_signal_transfer_completion(itransfer);
+                   }
+               }
+               else
+               {
+                   rc = DosSleep(1);
+                   rc = DosWriteQueue(ghQueue,(ULONG)itransfer,0,NULL,0);
+               }
+               break;
+
+            case LIBUSB_TRANSFER_TYPE_ISOCHRONOUS:
+               usbi_signal_transfer_completion(itransfer);
+               break;
+            }
+        }
+    } while (1);
+}
 
 static int
 os2_get_device_list(struct libusb_context * ctx,
@@ -526,7 +719,7 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
          err = LIBUSB_ERROR_NOT_SUPPORTED;
          break;
       }
-      err = _sync_bulk_transfer(itransfer);
+      err = _sync_data_transfer(itransfer);
       break;
    case LIBUSB_TRANSFER_TYPE_INTERRUPT:
       if (IS_XFEROUT(transfer) &&
@@ -534,13 +727,12 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
          err = LIBUSB_ERROR_NOT_SUPPORTED;
          break;
       }
-      err = _sync_irq_transfer(itransfer);
+      err = _sync_data_transfer(itransfer);
       break;
    case LIBUSB_TRANSFER_TYPE_BULK_STREAM:
       err = LIBUSB_ERROR_NOT_SUPPORTED;
       break;
    }
-   if (!err) usbi_signal_transfer_completion(itransfer);
    return(err);
 }
 
@@ -566,59 +758,11 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 {
    struct transfer_priv *tpriv = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct libusb_device *dev        = transfer->dev_handle->dev;
-   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
-   ULONG postCount = 0;
-   APIRET rc = NO_ERROR;
 
    usbi_dbg(" ");
    usbi_dbg("transfer %p", transfer);
 
-   /*
-    * we continue to handle any isochronous transfer synchronously
-    * because often enough we have to break up the transfer in multiple runs
-    * but these runs cannot be retriggered from this transfer completion routine
-    */
-   if (transfer->type == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS)
-   {
-      usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-      /*
-       * because we don't know any better, pick the status of the first transferred packet
-       */
-      return(usbi_handle_transfer_completion(itransfer,transfer->iso_packet_desc[0].status ));
-   }
-   else
-   {
-      rc = DosWaitEventSem(tpriv->hEventSem,transfer->timeout);
-      usbi_dbg("DosWaitEventSem with timeout %d, rc = %lu",transfer->timeout, rc);
-      if (ERROR_TIMEOUT == rc)
-      {
-          int iface = _interface_for_endpoint(dev,transfer->endpoint);
-
-          rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
-          usbi_dbg("UsbCancelTransfer rc = %lu",rc);
-          if (NO_ERROR == rc)
-          {
-             rc = DosWaitEventSem(tpriv->hEventSem,(ULONG)transfer->timeout);
-          }
-          rc = DosCloseEventSem(tpriv->hEventSem);
-          return(usbi_handle_transfer_completion(itransfer, LIBUSB_TRANSFER_TIMED_OUT));
-      }
-
-      rc = DosResetEventSem(tpriv->hEventSem,&postCount);
-      usbi_dbg("DosResetEventSem with post count %lu,  rc = %lu",postCount,rc);
-
-      if (postCount)
-      {
-          rc = DosCloseEventSem(tpriv->hEventSem);
-          usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-          itransfer->transferred = tpriv->Response.usDataLength;
-          usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-          return(usbi_handle_transfer_completion(itransfer, (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR));
-      }
-   }
-   return(LIBUSB_SUCCESS);
+   return(usbi_handle_transfer_completion(itransfer, tpriv->status));
 }
 
 
@@ -764,7 +908,9 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
    usbi_dbg("DosCreateEventSem rc = %lu",rc);
 
-   tpriv->Response.usDataLength = setup->wLength;
+   tpriv->Processed           = 0;
+   tpriv->ToProcess           = setup->wLength;
+   tpriv->Response.usDataLength = tpriv->ToProcess;
    rc = UsbStartCtrlTransfer(   dpriv->fd, 0, 0, setup->bmRequestType,
                                 setup->bRequest,setup->wValue,setup->wIndex,
                                 (PUCHAR)&tpriv->Response, transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE, tpriv->hEventSem);
@@ -777,12 +923,16 @@ _sync_control_transfer(struct usbi_transfer *itransfer)
    {
        DosCloseEventSem(tpriv->hEventSem);
    }
+   else
+   {
+       rc = DosWriteQueue(ghQueue,(ULONG)itransfer,0,NULL,0);
+   }
    return(_apiret_to_libusb(rc));
 }
 
 
 static int
-_sync_bulk_transfer(struct usbi_transfer *itransfer)
+_sync_data_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
 
@@ -794,7 +944,9 @@ _sync_bulk_transfer(struct usbi_transfer *itransfer)
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
    usbi_dbg("DosCreateEventSem rc = %lu",rc);
 
-   tpriv->Response.usDataLength = (USHORT)transfer->length;
+   tpriv->Processed = 0;
+   tpriv->ToProcess = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
+   tpriv->Response.usDataLength = (USHORT)tpriv->ToProcess;
    rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
    usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
    usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
@@ -805,35 +957,13 @@ _sync_bulk_transfer(struct usbi_transfer *itransfer)
    {
        DosCloseEventSem(tpriv->hEventSem);
    }
-   return(_apiret_to_libusb(rc));
-}
-
-static int
-_sync_irq_transfer(struct usbi_transfer *itransfer)
-{
-   usbi_dbg(" ");
-
-   struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
-   struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
-   APIRET rc = NO_ERROR;
-
-   rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
-   usbi_dbg("DosCreateEventSem rc = %lu",rc);
-
-   tpriv->Response.usDataLength = (USHORT)transfer->length;
-   rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
-   usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
-   usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
-   usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
-   usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
-
-   if (rc)
+   else
    {
-       DosCloseEventSem(tpriv->hEventSem);
+       rc = DosWriteQueue(ghQueue,(ULONG)itransfer,0,NULL,0);
    }
    return(_apiret_to_libusb(rc));
 }
+
 
 static int
 _sync_iso_transfer(struct usbi_transfer *itransfer)
@@ -859,9 +989,7 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
    int errorcode = LIBUSB_SUCCESS;
    enum libusb_transfer_status status = LIBUSB_TRANSFER_ERROR;
 
-
    usbi_dbg("dev handle: %p, nr = %u, num packets = %u",transfer->dev_handle,transfer->length,transfer->num_iso_packets);
-
 
    itransfer->transferred = 0;
 
@@ -1050,6 +1178,11 @@ _sync_iso_transfer(struct usbi_transfer *itransfer)
       }
    } while (0); /* enddo */
 
+   if (LIBUSB_SUCCESS == errorcode)
+   {
+       tpriv->status = status;
+       rc = DosWriteQueue(ghQueue,(ULONG)itransfer,0,NULL,0);
+   }
    return(errorcode);
 }
 
