@@ -53,6 +53,14 @@ struct device_priv {
    unsigned char cdesc[4096];               /* active config descriptor */
 };
 
+struct entry
+{
+    struct usbi_transfer *itransfer;
+    STAILQ_ENTRY(entry) entries;
+};
+STAILQ_HEAD(stailhead, entry);
+
+
 struct transfer_priv
 {
    int                 ToProcess;
@@ -60,5 +68,6 @@ struct transfer_priv
    enum libusb_transfer_status status;
    HEV                 hEventSem;           /* used to wait for termination event, used for all transfers */
    USBCALLS_MY_RSP     Response;            /* structure to manage individual transfers, extended by frame size list to support iso */
+   struct entry        element;             /* structure to allow linking into the queue of transfers to manage */
 };
 
