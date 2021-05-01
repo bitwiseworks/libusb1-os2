@@ -209,13 +209,18 @@ void AsyncHandlingThread(void *arg)
             npnext       = STAILQ_NEXT(np,entries);
 
             itransfer    = np->itransfer;
-            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-            dev          = transfer->dev_handle->dev;
-            dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
-            postCount    = 0;
 
             usbi_dbg("transfer: %p",transfer);
+
+            if (!transfer->dev_handle || !transfer->dev_handle->dev)
+            {
+                goto bailout;
+            }
+            dev          = transfer->dev_handle->dev;
+            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+            dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
+            postCount    = 0;
 
             switch (transfer->type) {
             case LIBUSB_TRANSFER_TYPE_CONTROL:
@@ -247,7 +252,7 @@ void AsyncHandlingThread(void *arg)
                {
                    tpriv->Processed += tpriv->Response.usDataLength;
 
-                   if (tpriv->Processed < transfer->length)
+                   if (IS_XFEROUT(transfer) && (tpriv->Processed < transfer->length))
                    {
                        usbi_dbg("received %u from %u bytes",tpriv->Processed,transfer->length);
 
@@ -290,6 +295,8 @@ void AsyncHandlingThread(void *arg)
         rc = DosSleep(1);
 
     } while (1);
+bailout:
+    return;
 }
 
 static int
