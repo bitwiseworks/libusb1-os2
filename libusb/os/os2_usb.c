@@ -317,6 +317,11 @@ void AsyncHandlingThread(void *arg)
                   usbi_signal_transfer_completion(itransfer);
                }
                break;
+
+            default:
+               usbi_dbg("unknown transfer type:%u",transfer->type);
+               break;
+
             }
             np = npnext;
         }
