@@ -272,7 +272,7 @@ void AsyncHandlingThread(void *arg)
                    {
                       tpriv->Processed += tpriv->Response.usDataLength;
 
-                      if (IS_XFEROUT(transfer) && (tpriv->Processed < transfer->length))
+                      if ((tpriv->ToProcess == tpriv->Response.usDataLength) && (tpriv->Processed < transfer->length))
                       {
                           usbi_dbg("received %u from %u bytes",tpriv->Processed,transfer->length);
 
