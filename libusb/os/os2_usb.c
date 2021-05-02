@@ -215,6 +215,7 @@ void AsyncHandlingThread(void *arg)
 
             if (!transfer->dev_handle || !transfer->dev_handle->dev)
             {
+                usbi_dbg("dev handle or device have become invalid !");
                 goto bailout;
             }
             dev          = transfer->dev_handle->dev;
@@ -229,17 +230,27 @@ void AsyncHandlingThread(void *arg)
 
                if (postCount)
                {
-                   STAILQ_REMOVE(&gHead,np,entry,entries);
+                   if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
+                   {
+                       STAILQ_REMOVE(&gHead,np,entry,entries);
 
-                   tpriv->Processed += tpriv->Response.usDataLength;
+                       itransfer->transferred = 0;
+                       usbi_handle_transfer_cancellation(itransfer);
+                   }
+                   else
+                   {
+                      STAILQ_REMOVE(&gHead,np,entry,entries);
 
-                   rc = DosCloseEventSem(tpriv->hEventSem);
-                   usbi_dbg("DosCloseEventSem rc = %lu",rc);
+                      tpriv->Processed += tpriv->Response.usDataLength;
 
-                   itransfer->transferred = tpriv->Processed;
-                   usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-                   tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
-                   usbi_signal_transfer_completion(itransfer);
+                      rc = DosCloseEventSem(tpriv->hEventSem);
+                      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+                      itransfer->transferred = tpriv->Processed;
+                      usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+                      tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
+                      usbi_signal_transfer_completion(itransfer);
+                   }
                }
                break;
 
@@ -250,42 +261,61 @@ void AsyncHandlingThread(void *arg)
 
                if (postCount)
                {
-                   tpriv->Processed += tpriv->Response.usDataLength;
-
-                   if (IS_XFEROUT(transfer) && (tpriv->Processed < transfer->length))
+                   if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
                    {
-                       usbi_dbg("received %u from %u bytes",tpriv->Processed,transfer->length);
+                       STAILQ_REMOVE(&gHead,np,entry,entries);
 
-                       int diff = transfer->length - tpriv->Processed;
-                       tpriv->ToProcess = diff < MAX_TRANSFER_SIZE ? diff : MAX_TRANSFER_SIZE;
-
-                       tpriv->Response.usDataLength = (USHORT)tpriv->ToProcess;
-                       rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer+tpriv->Processed,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
-                       usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
-                       usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
-                       usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
-                       usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
+                       itransfer->transferred = 0;
+                       usbi_handle_transfer_cancellation(itransfer);
                    }
                    else
                    {
-                      rc = DosCloseEventSem(tpriv->hEventSem);
-                      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+                      tpriv->Processed += tpriv->Response.usDataLength;
 
-                      STAILQ_REMOVE(&gHead,np,entry,entries);
+                      if (IS_XFEROUT(transfer) && (tpriv->Processed < transfer->length))
+                      {
+                          usbi_dbg("received %u from %u bytes",tpriv->Processed,transfer->length);
 
-                      itransfer->transferred = tpriv->Processed;
-                      usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-                      tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
-                      usbi_signal_transfer_completion(itransfer);
+                          int diff = transfer->length - tpriv->Processed;
+                          tpriv->ToProcess = diff < MAX_TRANSFER_SIZE ? diff : MAX_TRANSFER_SIZE;
+
+                          tpriv->Response.usDataLength = (USHORT)tpriv->ToProcess;
+                          rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer+tpriv->Processed,tpriv->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
+                          usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
+                          usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
+                          usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
+                          usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
+                      }
+                      else
+                      {
+                         rc = DosCloseEventSem(tpriv->hEventSem);
+                         usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+                         STAILQ_REMOVE(&gHead,np,entry,entries);
+
+                         itransfer->transferred = tpriv->Processed;
+                         usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+                         tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
+                         usbi_signal_transfer_completion(itransfer);
+                      }
                    }
                }
                break;
 
             case LIBUSB_TRANSFER_TYPE_ISOCHRONOUS:
-               STAILQ_REMOVE(&gHead,np,entry,entries);
+               if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
+               {
+                   STAILQ_REMOVE(&gHead,np,entry,entries);
 
-               usbi_signal_transfer_completion(itransfer);
+                   itransfer->transferred = 0;
+                   usbi_handle_transfer_cancellation(itransfer);
+               }
+               else
+               {
+                  STAILQ_REMOVE(&gHead,np,entry,entries);
 
+                  usbi_signal_transfer_completion(itransfer);
+               }
                break;
             }
             np = npnext;
@@ -708,10 +738,30 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
 static int
 os2_cancel_transfer(struct usbi_transfer *itransfer)
 {
-   UNUSED(itransfer);
+   struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+   struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+   struct libusb_device *dev        = transfer->dev_handle->dev;
+   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
+   APIRET rc = NO_ERROR;
+   int iface = 0;
+
    usbi_dbg(" ");
 
-   return(LIBUSB_SUCCESS);
+   iface = _interface_for_endpoint(dev,transfer->endpoint);
+   if (iface < 0) {
+      usbi_dbg("no interface to endpoint %#02x found",transfer->endpoint);
+      return(LIBUSB_ERROR_INVALID_PARAM);
+   } /* endif */
+
+   rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
+   if (NO_ERROR != rc) {
+      usbi_dbg("UsbCancelTransfer failed, apiret: %lu",rc);
+   }
+   else
+   {
+      tpriv->status = LIBUSB_TRANSFER_CANCELLED;
+   }
+   return(_apiret_to_libusb(rc));
 }
 
 static void
@@ -799,9 +849,7 @@ static int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint)
    for (i=0;i<config->bNumInterfaces;i++) {
       for (a=0;a<config->interface[i].num_altsetting;a++) {
          for (e=0;e<config->interface[i].altsetting[a].bNumEndpoints;e++) {
-            if (((config->interface[i].altsetting[a].bInterfaceClass  == 1) || (config->interface[i].altsetting[a].bInterfaceClass == 14)) &&
-                (config->interface[i].altsetting[a].bInterfaceSubClass == 2) &&
-                (config->interface[i].altsetting[a].endpoint[e].bEndpointAddress == endpoint)) {
+            if (config->interface[i].altsetting[a].endpoint[e].bEndpointAddress == endpoint) {
                interface = i;
                goto leave;
             } /* endif */
@@ -1037,8 +1085,9 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
       }
 
       iface = _interface_for_endpoint(dev,transfer->endpoint);
-      if (iface < 0) {
-         usbi_dbg("endpoint %#02x not associated with streaming interface",transfer->endpoint);
+      if (iface < 0)
+      {
+         usbi_dbg("no interface to endpoint %#02x found",transfer->endpoint);
          errorcode = LIBUSB_ERROR_INVALID_PARAM;
          break;
       } /* endif */
