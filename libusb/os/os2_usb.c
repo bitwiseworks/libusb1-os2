@@ -765,6 +765,11 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    else
    {
       tpriv->status = LIBUSB_TRANSFER_CANCELLED;
+
+      tpriv->element.itransfer = itransfer;
+      DosRequestMutexSem(ghMutex,SEM_INDEFINITE_WAIT);
+      STAILQ_INSERT_TAIL(&gHead,&tpriv->element,entries);
+      DosReleaseMutexSem(ghMutex);
    }
    return(_apiret_to_libusb(rc));
 }
