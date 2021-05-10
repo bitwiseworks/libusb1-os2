@@ -828,11 +828,9 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    } /* endif */
 
    rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
-   if (NO_ERROR != rc) {
-      usbi_dbg("UsbCancelTransfer failed, apiret: %lu",rc);
-   }
-   else
-   {
+   usbi_dbg("UsbCancelTransfer with ep = %#02x, alt = %02u, rc = %lu",transfer->endpoint,dpriv->altsetting[iface],rc);
+
+   if (NO_ERROR == rc) {
       tpriv->status = LIBUSB_TRANSFER_CANCELLED;
 
       tpriv->element.itransfer = itransfer;
@@ -1121,13 +1119,12 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
    APIRET rc = NO_ERROR;
    int j = 0;
    unsigned int num_max_packets_per_execution = 0;
-   unsigned int num_iso_packets  = 0;
    int length = 0;
    int iface = 0;
    int errorcode = LIBUSB_SUCCESS;
    unsigned int tmp=0;
 
-   usbi_dbg("dev handle: %p, nr = %u, num packets = %u",transfer->dev_handle,transfer->length,transfer->num_iso_packets);
+   usbi_dbg("initial:num iso packets %u, buffer len %u",transfer->num_iso_packets,transfer->length);
 
    itransfer->transferred = 0;
 
@@ -1154,13 +1151,10 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          }
          /* endif */
          tpriv->packetLen = transfer->iso_packet_desc[0].length;
-         num_iso_packets = transfer->num_iso_packets;
       }
       else
       {
           tpriv->packetLen = transfer->length;
-          num_iso_packets = 1;
-          transfer->num_iso_packets = num_iso_packets;
       }
 
       iface = _interface_for_endpoint(dev,transfer->endpoint);
@@ -1195,7 +1189,7 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
       tpriv->numMaxPacketsPerExecution = num_max_packets_per_execution;
 
       tpriv->Processed = 0;
-      tpriv->ToProcess = num_iso_packets < num_max_packets_per_execution ? num_iso_packets : num_max_packets_per_execution;
+      tpriv->ToProcess = (unsigned int)transfer->num_iso_packets < num_max_packets_per_execution ? (unsigned int)transfer->num_iso_packets : num_max_packets_per_execution;
 
       for (j=0,length=0;j< tpriv->ToProcess ;j++,length += tmp)
       {
