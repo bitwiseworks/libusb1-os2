@@ -443,6 +443,7 @@ os2_get_device_list(struct libusb_context * ctx,
          return(LIBUSB_ERROR_IO);
       }
 
+      /* under OS/2, the Resource Manager device handle is a GUID, well suited to track a device */
       dev = usbi_get_device_by_session_id(ctx, info.rmDevHandle);
       if (dev == NULL) {
          dev = usbi_alloc_device(ctx, info.rmDevHandle);
@@ -494,7 +495,6 @@ os2_get_device_list(struct libusb_context * ctx,
 
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
          dpriv->fd = -1U;
-         dpriv->rmDevHandle = info.rmDevHandle;     /* under OS/2, the Resource Manager device handle is a GUID, well suited to track a device */
          memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
          memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
          memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
@@ -607,7 +607,7 @@ os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
 static int
 os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
 {
-   struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
+   struct libusb_device *dev = handle->dev;
    ULONG cntDev,ctr,len;
    APIRET rc = LIBUSB_SUCCESS;
    GETDEVINFODATA info;
@@ -628,7 +628,7 @@ os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
          usbi_dbg( "unable to query device info -  rc= %lu", rc);
          return(LIBUSB_ERROR_IO);
       } /* endif */
-      if (info.rmDevHandle == dpriv->rmDevHandle) {
+      if (info.rmDevHandle == dev->session_data) {
          *config = info.bConfigurationValue;
          return(LIBUSB_SUCCESS);
       } /* endif */
