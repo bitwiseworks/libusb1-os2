@@ -96,7 +96,7 @@ static int _async_iso_transfer(struct usbi_transfer *);
 
 
 const struct usbi_os_backend usbi_backend = {
-   "Synchronous OS/2 backend",
+   "Asynchronous OS/2 backend",
    0,
    NULL,          /* init() */
    NULL,          /* exit() */
@@ -724,6 +724,7 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
                              packet_len);
           usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,altsetting,endpoint,rc);
           errorcode = _apiret_to_libusb(rc);
+          dpriv->endpoint[iface] = endpoint;
        }
        else
        {
@@ -873,9 +874,7 @@ static int _is_streaming_interface(struct libusb_device *dev, uint8_t iface)
       for (a=0;a<config->interface[i].num_altsetting;a++) {
          for (e=0;e<config->interface[i].altsetting[a].bNumEndpoints;e++) {
             if ((config->interface[i].altsetting[a].bInterfaceNumber == iface) &&
-                ((config->interface[i].altsetting[a].bInterfaceClass  == 1) || (config->interface[i].altsetting[a].bInterfaceClass == 14)) &&
-                (config->interface[i].altsetting[a].bInterfaceSubClass == 2) &&
-                (config->interface[i].altsetting[a].endpoint[e].bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
+               ((config->interface[i].altsetting[a].endpoint[e].bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS)) {
                    foundStreamingInterface = 1;
                    goto leave;
             } /* endif */
@@ -896,18 +895,16 @@ static void _call_iso_close(struct libusb_device *dev)
    for (i=0;i<config->bNumInterfaces;i++) {
       for (a=0;a<config->interface[i].num_altsetting;a++) {
          for (e=0;e<config->interface[i].altsetting[a].bNumEndpoints;e++) {
-            if (((config->interface[i].altsetting[a].bInterfaceClass  == 1) || (config->interface[i].altsetting[a].bInterfaceClass == 14)) &&
-                (config->interface[i].altsetting[a].bInterfaceSubClass == 2) &&
-                (config->interface[i].altsetting[a].endpoint[e].bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
-                   if (dpriv->endpoint[i] && dpriv->altsetting[i])
-                   {
-                      rc = UsbInterfaceSetAltSetting(dpriv->fd,i,0);
-                      if (NO_ERROR != rc) {
-                         usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",i,rc);
-                      }
-                      dpriv->endpoint[i] = 0;
-                      dpriv->altsetting[i] = 0;
-                   } /* endif */
+            if ((config->interface[i].altsetting[a].endpoint[e].bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
+               if (dpriv->endpoint[i] && dpriv->altsetting[i])
+               {
+                  rc = UsbInterfaceSetAltSetting(dpriv->fd,i,0);
+                  if (NO_ERROR != rc) {
+                     usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",i,rc);
+                  }
+                  dpriv->endpoint[i] = 0;
+                  dpriv->altsetting[i] = 0;
+               } /* endif */
             } /* endif */
          } /* endfor */
       } /* endfor */
@@ -1170,7 +1167,6 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          errorcode = LIBUSB_ERROR_INVALID_PARAM;
          break;
       }
-      dpriv->endpoint[iface] = transfer->endpoint;
 
       rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
       if (NO_ERROR != rc) {
