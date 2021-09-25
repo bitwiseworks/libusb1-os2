@@ -16,13 +16,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#define MAX_NUM_ISO_PACKETS 4096
+/* speed definitions from USBD.SYS / USBCALLS */
+#define USB_SPEED_FULL                    0 
+#define USB_SPEED_LOW                     1 
+#define USB_SPEED_HIGH                    2 
+#define USB_SPEED_SUPER                   3 
+
+#define MAX_NUM_ISO_PACKETS            4096
+#define NUM_ISO_BUFFS                     8
 
 #define PACKET_SIZE_MASK            0x07FFU
 #define PACKET_MUL_MASK             0x1800U
 #define PACKET_MUL_SHIFT            11
 
-#define MAX_TRANSFER_SIZE           32768
+#define MAX_TRANSFER_SIZE           8192  /* this is the value that the ArcaOS version of USBCALLS supports as the maximum */
 
 #pragma pack(1)
 typedef struct _GETDEVINFODATA_
@@ -45,11 +52,12 @@ typedef struct _USBCALLS_MY_RSP_
 #pragma pack()
 
 struct device_priv {
-   unsigned long fd;                        /* device file descriptor */
+   unsigned int            numIsoBuffsInUse;                /* only used for isochronous devices */   
+   unsigned long           fd;                              /* device file descriptor */
    struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */
-   uint8_t altsetting[USB_MAXINTERFACES];   /* remembers what alternate setting was chosen for a given interface */
-   uint8_t endpoint[USB_MAXINTERFACES];     /* remembers what endpoint was chosen for a given interface */
-   unsigned char cdesc[4096];               /* active config descriptor */
+   uint8_t                 altsetting[USB_MAXINTERFACES];   /* remembers what alternate setting was chosen for a given interface */
+   uint8_t                 endpoint[USB_MAXINTERFACES];     /* remembers what endpoint was chosen for a given interface */
+   unsigned char           cdesc[4096];                     /* active config descriptor */
 };
 
 struct entry
@@ -62,13 +70,15 @@ STAILQ_HEAD(stailhead, entry);
 
 struct transfer_priv
 {
-   int                 ToProcess;
-   int                 Processed;
-   int                 numMaxPacketsPerExecution; /* only used for isochronous transfers */
-   int                 packetLen;                 /* only used for isochronous transfers */
+   unsigned int        ToProcess[NUM_ISO_BUFFS];   /* bytes for control/bulk/irq, packets for iso */
+   unsigned int        Processed;                  /* bytes for control/bulk/irq, packets for iso */
+   unsigned int        numMaxPacketsPerExecution;  /* only used for isochronous transfers */
+   unsigned int        packetLen;                  /* only used for isochronous transfers */
+   unsigned int        writeIndex;                 /* only used for isochronous transfers */
+   unsigned int        readIndex;                  /* only used for isochronous transfers */
    enum libusb_transfer_status status;
-   HEV                 hEventSem;           /* used to wait for termination event, used for all transfers */
-   USBCALLS_MY_RSP     Response;            /* structure to manage individual transfers, extended by frame size list to support iso */
-   struct entry        element;             /* structure to allow linking into the queue of transfers to manage */
+   HEV                 hEventSem;                  /* used to wait for termination event, used for all transfers */
+   USBCALLS_MY_RSP     Response[NUM_ISO_BUFFS];    /* structure to manage individual transfers, extended by frame size list to support iso */
+   struct entry        element;                    /* structure to allow linking into the queue of transfers to manage */
 };
 
