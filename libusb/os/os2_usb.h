@@ -73,8 +73,6 @@ struct transfer_priv
 {
    unsigned int        ToProcess;                  /* bytes for control/bulk/irq, packets for iso */
    unsigned int        Processed;                  /* bytes for control/bulk/irq, packets for iso */
-   unsigned int        numMaxPacketsPerExecution;  /* only used for isochronous transfers */
-   unsigned int        packetLen;                  /* only used for isochronous transfers */
    enum libusb_transfer_status status;
    HEV                 hEventSem;                  /* used to wait for termination event, used for all transfers */
    USBCALLS_MY_RSP     Response;                   /* structure to manage individual transfers, extended by frame size list to support iso */
