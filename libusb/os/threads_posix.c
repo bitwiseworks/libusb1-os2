@@ -90,7 +90,7 @@ unsigned int usbi_get_tid(void)
 	PTIB ptib = NULL;
 	PPIB ppib = NULL;
 	DosGetInfoBlocks(&ptib,&ppib);
-	return ptib->tib_ordinal;
+	return ptib->tib_ptib2->tib2_ultid;
 #else
 	static _Thread_local unsigned int tl_tid=0;
 	int tid;
