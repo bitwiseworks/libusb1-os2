@@ -1369,7 +1369,7 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
       {
           dpriv->numIsoBuffsInUse += num_necessary_iso_buffs;
       }
-      usbi_dbg("Num Iso Buffers in use:%u, libusb error: %u",dpriv->numIsoBuffsInUse,errorcode);
+      usbi_dbg("Num Iso Buffers in use:%u, libusb error: %d",dpriv->numIsoBuffsInUse,errorcode);
 
       usbi_mutex_unlock(&dev->lock);
 
