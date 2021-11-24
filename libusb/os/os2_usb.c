@@ -233,6 +233,7 @@ void AsyncHandlingThread(void *arg)
 
             itransfer    = np->itransfer;
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
             usbi_dbg("transfer: %p",transfer);
 
@@ -254,7 +255,6 @@ void AsyncHandlingThread(void *arg)
                 continue;
             }
             dev          = transfer->dev_handle->dev;
-            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
             dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
             postCount    = 0;
 
@@ -373,17 +373,8 @@ void AsyncIsoHandlingThread(void *arg)
     struct libusb_transfer *transfer = NULL;
     struct libusb_device *dev        = NULL;
     struct device_priv *dpriv        = NULL;
-    APIRET rc = NO_ERROR, rc2 = NO_ERROR;
-    ULONG postCount = 0;
-    unsigned int i = 0,j = 0;
-    int length = 0;
-    int iface = 0;
-    unsigned int num_max_packets_per_execution = 0;
-    unsigned int num_iso_packets = 0;
-    unsigned int curr_num_iso_packets = 0;
-    unsigned int num_necessary_iso_buffs = 0;
-    unsigned int packet_len = 0;
-    unsigned int tmp=0;
+    APIRET rc = NO_ERROR;
+    unsigned int j = 0;
     struct entry *np=NULL;
     struct entry *npnext = NULL;
 
@@ -402,154 +393,70 @@ void AsyncIsoHandlingThread(void *arg)
             itransfer    = np->itransfer;
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
             tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
-            dev          = transfer->dev_handle->dev;
-            dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
 
             usbi_dbg("transfer: %p",transfer);
 
-            if (transfer->num_iso_packets)
+            if (!transfer->dev_handle || !transfer->dev_handle->dev)
             {
-               packet_len = transfer->iso_packet_desc[0].length;
-               num_iso_packets = transfer->num_iso_packets;
+                usbi_dbg("dev handle or device have become invalid !");
+
+                DosCloseEventSem(tpriv->hEventSem);
+                usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+                itransfer->transferred = 0;
+
+                tpriv->status = LIBUSB_TRANSFER_ERROR;
+                usbi_signal_transfer_completion(itransfer);
+
+                DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+                npnext       = STAILQ_NEXT(np,entries);
+                STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+                np = npnext;
+                continue;
             }
-            else
+
+            dev          = transfer->dev_handle->dev;
+            dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
+
+            rc = DosWaitEventSem(tpriv->hEventSem,SEM_INDEFINITE_WAIT);
+            usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
+
+            if (NO_ERROR == rc)
             {
-               packet_len = transfer->length;
-               num_iso_packets = 1;
-            }
+               usbi_dbg("iso: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-
-            num_max_packets_per_execution = MAX_ISO_TRANSFER_SIZE / packet_len;
-            /*
-             * IMPORTANT: for every invocation of UsbStartIsoTransfer in conjunction with EHCI, the number of packets
-             * has to be a multiple of 8 !!!
-             * for UHCI/OHCI this does not matter but it's also not wrong
-             */
-            num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
-            if (!num_max_packets_per_execution) num_max_packets_per_execution = 1;
-
-            num_necessary_iso_buffs = (num_iso_packets / num_max_packets_per_execution) + ((num_iso_packets % num_max_packets_per_execution) ? 1 : 0);
-
-            itransfer->transferred = 0;
-            tpriv->Processed                = 0;
-
-            iface = _interface_for_endpoint(dev,transfer->endpoint);
-
-            for (i=0;i<num_necessary_iso_buffs;i++) {
-               curr_num_iso_packets = num_iso_packets - tpriv->Processed;
-               tpriv->ToProcess = curr_num_iso_packets < num_max_packets_per_execution ? curr_num_iso_packets : num_max_packets_per_execution;
-
-               for (j=0,length=0;j< tpriv->ToProcess;j++,length += tmp)
+               if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
                {
-                  tmp = transfer->iso_packet_desc[tpriv->Processed + j].length;
-                  tpriv->Response.usFrameSize[j] = (USHORT)tmp;
-               }
-               /* endfor */
+                  usbi_dbg("transfer was cancelled !");
 
-               tpriv->Response.usStatus = 0;
-               tpriv->Response.usDataLength = (USHORT)length;
-
-               rc = UsbStartIsoTransfer(dpriv->fd,
-                                        transfer->endpoint,
-                                        dpriv->altsetting[iface],
-                                        tpriv->hEventSem,
-                                        (PUCHAR)&tpriv->Response,
-                                        transfer->buffer + itransfer->transferred,
-                                        (USHORT)packet_len,
-                                        (USHORT)tpriv->ToProcess);
-               usbi_dbg("UsbStartIsoTransfer with fd = %#.8lx",dpriv->fd);
-               usbi_dbg("UsbStartIsoTransfer with iso ep = %#02x",transfer->endpoint);
-               usbi_dbg("UsbStartIsoTransfer with usbcalls_timeout = %d",transfer->timeout);
-               usbi_dbg("UsbStartIsoTransfer num iso packets %u, packet len %u, buffer len %u",tpriv->ToProcess,packet_len,length);
-               usbi_dbg("UsbStartIsoTransfer rc = %lu",rc);
-
-               if (NO_ERROR != rc) {
-                  tpriv->status = LIBUSB_TRANSFER_ERROR;
                   itransfer->transferred = 0;
-                  for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
-                     transfer->iso_packet_desc[j].actual_length = 0;
-                     transfer->iso_packet_desc[j].status        = tpriv->status;
-                  }
-                  break;
-               }
-
-               rc = DosWaitEventSem(tpriv->hEventSem,SEM_INDEFINITE_WAIT);
-               usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
-
-               rc2 = DosResetEventSem(tpriv->hEventSem,&postCount);
-               usbi_dbg("DosResetEventSem with post count %lu,  rc = %lu",postCount,rc2);
-
-               if (!transfer->dev_handle || !transfer->dev_handle->dev)
-               {
-                 usbi_dbg("dev handle or device have become invalid !");
-
-                 tpriv->status = LIBUSB_TRANSFER_ERROR;
-                 itransfer->transferred = 0;
-                 for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
-                     transfer->iso_packet_desc[j].actual_length = 0;
-                     transfer->iso_packet_desc[j].status        = tpriv->status;
-                 }
-
-                 dev = NULL;
-                 dpriv = NULL;
-                 break;
-               }
-
-               dev        = transfer->dev_handle->dev;
-               dpriv      = (struct device_priv *)usbi_get_device_priv(dev);
-
-               if (NO_ERROR == rc)
-               {
-                  usbi_dbg("iso: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
-
-                  if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
-                  {
-                     usbi_dbg("transfer was cancelled !");
-
-                     itransfer->transferred = 0;
-                     for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
-                        transfer->iso_packet_desc[j].actual_length = 0;
-                        transfer->iso_packet_desc[j].status        = tpriv->status;
-                     }
-
-                     break;
-                  }
-                  else
-                  {
-                    tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
-                    for(j=0;j<tpriv->ToProcess;j++) {
-                        itransfer->transferred                                     += tpriv->Response.usFrameSize[j];
-                        transfer->iso_packet_desc[tpriv->Processed+j].actual_length = tpriv->Response.usFrameSize[j];
-                        transfer->iso_packet_desc[tpriv->Processed+j].status        = tpriv->status;
-                    }
-                    tpriv->Processed += tpriv->ToProcess;
-                  }
                }
                else
                {
-                  tpriv->status = LIBUSB_TRANSFER_ERROR;
-                  itransfer->transferred = 0;
-                  for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
-                     transfer->iso_packet_desc[j].actual_length = 0;
+                 tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
+                 for(j=0,itransfer->transferred = 0;j<tpriv->ToProcess;j++) {
+                     itransfer->transferred                    += tpriv->Response.usFrameSize[j];
+                     transfer->iso_packet_desc[j].actual_length = tpriv->Response.usFrameSize[j];
                      transfer->iso_packet_desc[j].status        = tpriv->status;
-                  }
-                  break;
+                 }
+                 tpriv->Processed += tpriv->ToProcess;
                }
+            }
+            else {
+               itransfer->transferred = 0;
+               tpriv->status = LIBUSB_TRANSFER_ERROR;
             }
 
             rc = DosCloseEventSem(tpriv->hEventSem);
             usbi_dbg("DosCloseEventSem, rc = %lu",rc);
 
+            usbi_mutex_lock(&dev->lock);
+            dpriv->numIsoBuffsInUse -= 1;
+            usbi_dbg("Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
+            usbi_mutex_unlock(&dev->lock);
+
             usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
             usbi_signal_transfer_completion(itransfer);
-
-            if (dev && dpriv) {
-               /* take device mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
-               usbi_mutex_lock(&dev->lock);
-               dpriv->numIsoBuffsInUse -= num_necessary_iso_buffs;
-               usbi_dbg("Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
-               usbi_mutex_unlock(&dev->lock);
-            }
 
             DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
             npnext       = STAILQ_NEXT(np,entries);
@@ -1284,7 +1191,6 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
    APIRET rc = NO_ERROR;
    unsigned int j = 0;
    unsigned int num_max_packets_per_execution = 0;
-   unsigned int num_necessary_iso_buffs = 0;
    unsigned int packet_len = 0;
    int length = 0;
    int iface = 0;
@@ -1299,6 +1205,13 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
 
       tpriv->hEventSem = NULLHANDLE;
 
+      if (!transfer->num_iso_packets)
+      {
+         usbi_dbg("no iso packets defined");
+         errorcode = LIBUSB_ERROR_INVALID_PARAM;
+         break;
+      }
+
       if (transfer->num_iso_packets > MAX_NUM_ISO_PACKETS)
       {
          usbi_dbg("number of iso packets exceeds supported limit, num packets %u",transfer->num_iso_packets);
@@ -1306,25 +1219,17 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          break;
       }
 
-      if (transfer->num_iso_packets)
-      {
-         for (j=0,length=0;j<(unsigned int)transfer->num_iso_packets;j++,length += packet_len) {
-            packet_len = transfer->iso_packet_desc[j].length;
-            transfer->iso_packet_desc[j].actual_length = 0;
-            transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_ERROR;
-         } /* endfor */
-         if (transfer->length < length) {
-            usbi_dbg("overall transfer length (%u) < sum packet lengths (%u)",transfer->length, length);
-            errorcode = LIBUSB_ERROR_INVALID_PARAM;
-            break;
-         }
-         /* endif */
-         packet_len = transfer->iso_packet_desc[0].length;
+      for (j=0,length=0;j<(unsigned int)transfer->num_iso_packets;j++,length += packet_len) {
+         packet_len = transfer->iso_packet_desc[j].length;
+         transfer->iso_packet_desc[j].actual_length = 0;
+         transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_ERROR;
+      } /* endfor */
+      if (transfer->length < length) {
+         usbi_dbg("overall transfer length (%u) < sum packet lengths (%u)",transfer->length, length);
+         errorcode = LIBUSB_ERROR_INVALID_PARAM;
+         break;
       }
-      else
-      {
-         packet_len = transfer->length;
-      }
+      /* endif */
 
       iface = _interface_for_endpoint(dev,transfer->endpoint);
       if (iface < 0)
@@ -1347,6 +1252,8 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          break;
       }
 
+      packet_len = transfer->iso_packet_desc[0].length;
+
       num_max_packets_per_execution = MAX_ISO_TRANSFER_SIZE / packet_len;
       /*
        * IMPORTANT: for every invocation of UsbStartIsoTransfer in conjunction with EHCI, the number of packets
@@ -1356,19 +1263,53 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
       num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
       if (!num_max_packets_per_execution) num_max_packets_per_execution = 1;
 
-      num_necessary_iso_buffs = (transfer->num_iso_packets / num_max_packets_per_execution) + ((transfer->num_iso_packets % num_max_packets_per_execution) ? 1 : 0);
+      itransfer->transferred = 0;
+      tpriv->Processed       = 0;
 
       /* take device mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
       usbi_mutex_lock(&dev->lock);
 
-      if ((dpriv->numIsoBuffsInUse + num_necessary_iso_buffs) > NUM_ISO_BUFFS) {
+      if ((dpriv->numIsoBuffsInUse + 1) > NUM_ISO_BUFFS) {
          errorcode = LIBUSB_ERROR_OVERFLOW;
       }
 
       if (LIBUSB_SUCCESS == errorcode)
       {
-          dpriv->numIsoBuffsInUse += num_necessary_iso_buffs;
+         tpriv->ToProcess = (unsigned int)transfer->num_iso_packets < num_max_packets_per_execution ? (unsigned int)transfer->num_iso_packets : num_max_packets_per_execution;
+
+         for (j=0,length=0;j< tpriv->ToProcess;j++,length += packet_len)
+         {
+            packet_len = transfer->iso_packet_desc[j].length;
+            tpriv->Response.usFrameSize[j] = (USHORT)packet_len;
+         }
+         /* endfor */
+
+         tpriv->Response.usStatus = 0;
+         tpriv->Response.usDataLength = (USHORT)length;
+
+         rc = UsbStartIsoTransfer(dpriv->fd,
+                                  transfer->endpoint,
+                                  dpriv->altsetting[iface],
+                                  tpriv->hEventSem,
+                                  (PUCHAR)&tpriv->Response,
+                                  transfer->buffer,
+                                  (USHORT)packet_len,
+                                  (USHORT)tpriv->ToProcess);
+         usbi_dbg("UsbStartIsoTransfer with fd = %#.8lx",dpriv->fd);
+         usbi_dbg("UsbStartIsoTransfer with iso ep = %#02x",transfer->endpoint);
+         usbi_dbg("UsbStartIsoTransfer with usbcalls_timeout = %d",transfer->timeout);
+         usbi_dbg("UsbStartIsoTransfer num iso packets %u, packet len %u, buffer len %u",tpriv->ToProcess,packet_len,length);
+         usbi_dbg("UsbStartIsoTransfer rc = %lu",rc);
+
+         if (NO_ERROR != rc) {
+            errorcode = LIBUSB_ERROR_IO;
+         }
       }
+
+      if (LIBUSB_SUCCESS == errorcode) {
+         dpriv->numIsoBuffsInUse += 1;
+      }
+
       usbi_dbg("Num Iso Buffers in use:%u, libusb error: %d",dpriv->numIsoBuffsInUse,errorcode);
 
       usbi_mutex_unlock(&dev->lock);
