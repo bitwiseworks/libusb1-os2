@@ -228,12 +228,14 @@ void AsyncHandlingThread(void *arg)
     {
         DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
         np = STAILQ_FIRST(&gTransferQueueHead);
-        DosReleaseMutexSem(ghTransferQueueMutex);
         while (np)
         {
+            itransfer    = np->itransfer;
+
+            DosReleaseMutexSem(ghTransferQueueMutex);
+
             toRemove     = FALSE;
 
-            itransfer    = np->itransfer;
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
             tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
@@ -255,7 +257,6 @@ void AsyncHandlingThread(void *arg)
                 npnext       = STAILQ_NEXT(np,entries);
                 STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
                 np = npnext;
-                DosReleaseMutexSem(ghTransferQueueMutex);
                 continue;
             }
             dev          = transfer->dev_handle->dev;
@@ -365,8 +366,8 @@ void AsyncHandlingThread(void *arg)
                 STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
             }
             np = npnext;
-            DosReleaseMutexSem(ghTransferQueueMutex);
         }
+        DosReleaseMutexSem(ghTransferQueueMutex);
 
         rc = DosSleep(1);
 
@@ -396,10 +397,12 @@ void AsyncIsoHandlingThread(void *arg)
     {
         DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
         np = STAILQ_FIRST(&gTransferIsoQueueHead);
-        DosReleaseMutexSem(ghTransferIsoQueueMutex);
         while (np)
         {
             itransfer    = np->itransfer;
+
+            DosReleaseMutexSem(ghTransferIsoQueueMutex);
+
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
             tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
@@ -421,7 +424,7 @@ void AsyncIsoHandlingThread(void *arg)
                 npnext       = STAILQ_NEXT(np,entries);
                 STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
                 np = npnext;
-                DosReleaseMutexSem(ghTransferIsoQueueMutex);
+
                 continue;
             }
 
@@ -472,8 +475,8 @@ void AsyncIsoHandlingThread(void *arg)
             npnext       = STAILQ_NEXT(np,entries);
             STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
             np = npnext;
-            DosReleaseMutexSem(ghTransferIsoQueueMutex);
         }
+        DosReleaseMutexSem(ghTransferIsoQueueMutex);
 
         rc = DosSleep(1);
 
@@ -803,7 +806,7 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
                              altsetting,
                              NUM_ISO_BUFFS, /* number of HC internal ISO buffer management structures */
                              packet_len);
-          usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, apiret:%lu",iface,altsetting,endpoint,rc);
+          usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, packet length %u, apiret:%lu",iface,altsetting,endpoint,packet_len,rc);
           errorcode = _apiret_to_libusb(rc);
           dpriv->endpoint[iface] = endpoint;
        }
@@ -912,25 +915,13 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    tpriv->status = LIBUSB_TRANSFER_CANCELLED;
 
    /*
-      for isochronous transfer type, any outstanding transfers
-      will be cancelled on calling "UsbIsoClose"
-      if we'd cancel them here, "UsbIsoClose" would throw an error
-      Instead, we just post the event semaphore so that the
-      asynchronous thread will free the transfer and call the
-      transfer completion
-      for all other transfer types, we can and should call
-      "UsbCancelTransfer" right here
-   */
-   if (transfer->type == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS)
-   {
-      rc = DosPostEventSem(tpriv->hEventSem);
-      usbi_dbg("DosPostEventSem, rc = %lu",rc);
-   }
-   else
-   {
-      rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
-      usbi_dbg("UsbCancelTransfer with ep = %#02x, alt = %02u, rc = %lu",transfer->endpoint,dpriv->altsetting[iface],rc);
-   }
+    * we call UsbCancelTransfer for each transfer to be cancelled, including isochronous transfers
+    * that will lead to an error in UsbIsoClose (because that also tries to cancel any outstanding transfers)
+    * but if we'd not cancel the transfers here, UsbIsoClose will not properly cleanup which leads to problems
+    * when the device is reinserted
+    */
+   rc = UsbCancelTransfer(dpriv->fd,transfer->endpoint,dpriv->altsetting[iface],tpriv->hEventSem);
+   usbi_dbg("UsbCancelTransfer with ep = %#02x, alt = %02u, rc = %lu",transfer->endpoint,dpriv->altsetting[iface],rc);
 
    return(_apiret_to_libusb(rc));
 }
@@ -1247,10 +1238,15 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          break;
       }
 
+      /*
+       * preset all transfers to zero length and "success"
+       * that will avoid libuvc based etc. applications in reporting
+       * transfer errors where in reality we did not make any attempt to transfer at all
+       */
       for (j=0,length=0;j<(unsigned int)transfer->num_iso_packets;j++,length += packet_len) {
          packet_len = transfer->iso_packet_desc[j].length;
          transfer->iso_packet_desc[j].actual_length = 0;
-         transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_ERROR;
+         transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_COMPLETED;
       } /* endfor */
       if (transfer->length < length) {
          usbi_dbg("overall transfer length (%u) < sum packet lengths (%u)",transfer->length, length);
@@ -1282,6 +1278,11 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
 
       packet_len = transfer->iso_packet_desc[0].length;
 
+      /*
+       * IMPORTANT: for OS/2 we need to clip the overall length of a transfer request to MAX_ISO_TRANSFER_SIZE bytes
+       * if we have more to transfer, we simply clip the list, every packet not served will return with zero size
+       * and "success", see above
+       */
       num_max_packets_per_execution = MAX_ISO_TRANSFER_SIZE / packet_len;
       /*
        * IMPORTANT: for every invocation of UsbStartIsoTransfer in conjunction with EHCI, the number of packets
