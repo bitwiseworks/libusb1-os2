@@ -610,7 +610,7 @@ os2_open(struct libusb_device_handle *handle)
    APIRET    rc = NO_ERROR;
    int       usbhandle;
 
-   usbi_dbg("open: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
+   usbi_dbg("on entry: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
 
    if (dev->refcnt < 4)
    {
@@ -620,7 +620,7 @@ os2_open(struct libusb_device_handle *handle)
          (USHORT)dev->device_descriptor.bcdDevice,
          (USHORT)USB_OPEN_FIRST_UNUSED);
 
-      usbi_dbg( "open device - id= %#04x:%#04x  rc= %lu",
+      usbi_dbg( "UsbOpen: id= %#04x:%#04x  rc= %lu",
                 dev->device_descriptor.idVendor,
                 dev->device_descriptor.idProduct,
                 rc);
@@ -648,12 +648,12 @@ os2_close(struct libusb_device_handle *handle)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET    rc;
 
-   usbi_dbg("close: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
+   usbi_dbg("on entry: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
 
    if (dev->refcnt < 4) {
       rc = UsbClose(dpriv->fd);
 
-      usbi_dbg( "close device - id= %#04x:%#04x  rc= %lu",
+      usbi_dbg( "UsbClose: id= %#04x:%#04x  rc= %lu",
           dev->device_descriptor.idVendor,
           dev->device_descriptor.idProduct,
           rc);
