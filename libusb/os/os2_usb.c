@@ -250,7 +250,7 @@ void AsyncHandlingThread(void *arg)
 
                 itransfer->transferred = 0;
 
-                tpriv->status = LIBUSB_TRANSFER_ERROR;
+                tpriv->status = LIBUSB_TRANSFER_NO_DEVICE;
                 usbi_signal_transfer_completion(itransfer);
 
                 DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
@@ -417,7 +417,7 @@ void AsyncIsoHandlingThread(void *arg)
 
                 itransfer->transferred = 0;
 
-                tpriv->status = LIBUSB_TRANSFER_ERROR;
+                tpriv->status = LIBUSB_TRANSFER_NO_DEVICE;
                 usbi_signal_transfer_completion(itransfer);
 
                 DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
