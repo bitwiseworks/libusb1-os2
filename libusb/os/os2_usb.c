@@ -586,6 +586,9 @@ os2_get_device_list(struct libusb_context * ctx,
          {
              dpriv->curr_config_descriptor = NULL;
          }
+
+         usbi_dbg( "allocated libusb_get_config_descriptor: %p", dpriv->curr_config_descriptor);
+
          if (usbi_sanitize_device(dev)) {
             libusb_unref_device(dev);
             continue;
@@ -607,7 +610,9 @@ os2_open(struct libusb_device_handle *handle)
    APIRET    rc = NO_ERROR;
    int       usbhandle;
 
-   if (dev->refcnt == 2)
+   usbi_dbg("open: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
+
+   if (dev->refcnt < 4)
    {
       rc = UsbOpen( (PUSBHANDLE)&usbhandle,
          (USHORT)dev->device_descriptor.idVendor,
@@ -615,11 +620,13 @@ os2_open(struct libusb_device_handle *handle)
          (USHORT)dev->device_descriptor.bcdDevice,
          (USHORT)USB_OPEN_FIRST_UNUSED);
 
+      usbi_dbg( "open device - id= %#04x:%#04x  rc= %lu",
+                dev->device_descriptor.idVendor,
+                dev->device_descriptor.idProduct,
+                rc);
+
       if (rc)
       {
-         usbi_dbg( "unable to open device - id= %#04x:%#04x  rc= %lu",
-            dev->device_descriptor.idVendor,
-            dev->device_descriptor.idProduct, rc);
          dpriv->fd = -1U;
          return( _apiret_to_libusb(rc));
       }
@@ -631,8 +638,6 @@ os2_open(struct libusb_device_handle *handle)
       usbi_dbg("UsbDeviceSetConfiguration: rc = %lu", rc);
    } /* endif */
 
-   usbi_dbg("fd %#.8lx", dpriv->fd);
-
    return(LIBUSB_SUCCESS);
 }
 
@@ -643,16 +648,15 @@ os2_close(struct libusb_device_handle *handle)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET    rc;
 
-   usbi_dbg("close: fd %#.8lx", dpriv->fd);
+   usbi_dbg("close: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
 
-   if (dev->refcnt == 2) {
+   if (dev->refcnt < 4) {
       rc = UsbClose(dpriv->fd);
-      if (rc) {
-         usbi_dbg( "unable to close device - id= %#04x:%#04x  fd= %#.8lx  rc= %lu",
-             dev->device_descriptor.idVendor,
-             dev->device_descriptor.idProduct,
-             dpriv->fd, rc);
-      }
+
+      usbi_dbg( "close device - id= %#04x:%#04x  rc= %lu",
+          dev->device_descriptor.idVendor,
+          dev->device_descriptor.idProduct,
+          rc);
 
       dpriv->fd = -1U;
    } /* endif */
@@ -853,6 +857,9 @@ os2_destroy_device(struct libusb_device *dev)
 
    _call_iso_close(dev);
    libusb_free_config_descriptor(dpriv->curr_config_descriptor);
+
+   usbi_dbg( "freed libusb_get_config_descriptor: %p", dpriv->curr_config_descriptor);
+
    dpriv->curr_config_descriptor = NULL;
 }
 
