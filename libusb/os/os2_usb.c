@@ -231,13 +231,10 @@ void AsyncHandlingThread(void *arg)
         while (np)
         {
             itransfer    = np->itransfer;
-
-            DosReleaseMutexSem(ghTransferQueueMutex);
-
+            transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
             toRemove     = FALSE;
 
-            transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+            DosReleaseMutexSem(ghTransferQueueMutex);
 
             usbi_dbg("transfer: %p",transfer);
 
@@ -245,22 +242,17 @@ void AsyncHandlingThread(void *arg)
             {
                 usbi_dbg("dev handle or device have become invalid !");
 
-                DosCloseEventSem(tpriv->hEventSem);
-                usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-                itransfer->transferred = 0;
-
-                tpriv->status = LIBUSB_TRANSFER_NO_DEVICE;
-                usbi_signal_transfer_completion(itransfer);
-
                 DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
                 npnext       = STAILQ_NEXT(np,entries);
                 STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
                 np = npnext;
                 continue;
             }
+
             dev          = transfer->dev_handle->dev;
             dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
+            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+
             postCount    = 0;
 
             switch (transfer->type) {
@@ -400,11 +392,9 @@ void AsyncIsoHandlingThread(void *arg)
         while (np)
         {
             itransfer    = np->itransfer;
+            transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 
             DosReleaseMutexSem(ghTransferIsoQueueMutex);
-
-            transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
             usbi_dbg("transfer: %p",transfer);
 
@@ -412,22 +402,14 @@ void AsyncIsoHandlingThread(void *arg)
             {
                 usbi_dbg("dev handle or device have become invalid !");
 
-                DosCloseEventSem(tpriv->hEventSem);
-                usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-                itransfer->transferred = 0;
-
-                tpriv->status = LIBUSB_TRANSFER_NO_DEVICE;
-                usbi_signal_transfer_completion(itransfer);
-
                 DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
                 npnext       = STAILQ_NEXT(np,entries);
                 STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
                 np = npnext;
-
                 continue;
             }
 
+            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
             dev          = transfer->dev_handle->dev;
             dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
 
@@ -646,9 +628,62 @@ os2_close(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
-   APIRET    rc;
+   APIRET    rc = NO_ERROR;
+   struct usbi_transfer *itransfer = NULL;
+   struct libusb_transfer *transfer = NULL;
+   struct transfer_priv *tpriv = NULL;
+   struct entry *np=NULL;
+   struct entry *npnext = NULL;
 
    usbi_dbg("on entry: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
+
+   /*
+    * it is possible that applications will call "close" on a device
+    * immediately followed by freeing transfers that are still pending
+    * unfortunately, our transfer queues (non-iso and iso) hold references
+    * to these transfers because there is no notification mechanism
+    * from apps to this library that would allow us to unhook them
+    * we have to remove all still pending transfers from our queues
+    * so that we don't get a trap on accessing already freed transfers
+    * from our worker threads
+    */
+   DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+   np = STAILQ_FIRST(&gTransferQueueHead);
+   while (np)
+   {
+      itransfer    = np->itransfer;
+      transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+      tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+
+      usbi_dbg("unlinking transfer: %p",transfer);
+
+      DosCloseEventSem(tpriv->hEventSem);
+      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+      npnext       = STAILQ_NEXT(np,entries);
+      STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+      np = npnext;
+   }
+   DosReleaseMutexSem(ghTransferQueueMutex);
+
+   DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+   np = STAILQ_FIRST(&gTransferIsoQueueHead);
+   while (np)
+   {
+      itransfer    = np->itransfer;
+      transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+      tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+
+      usbi_dbg("unlinking transfer: %p",transfer);
+
+      DosCloseEventSem(tpriv->hEventSem);
+      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+      npnext       = STAILQ_NEXT(np,entries);
+      STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+      np = npnext;
+   }
+   DosReleaseMutexSem(ghTransferIsoQueueMutex);
 
    if (dev->refcnt < 4) {
       rc = UsbClose(dpriv->fd);

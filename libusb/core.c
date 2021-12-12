@@ -2421,15 +2421,15 @@ void API_EXPORTED libusb_exit(libusb_context *ctx)
 		 */
 		if (list_empty(&ctx->open_devs))
 			libusb_handle_events_timeout(ctx, &tv);
+			
+		usbi_mutex_lock(&ctx->usb_devs_lock);
+		for_each_device_safe(ctx, dev, next) {
+			list_del(&dev->list);
+			libusb_unref_device(dev);
+		}
+		usbi_mutex_unlock(&ctx->usb_devs_lock);
 	}
 
-	usbi_mutex_lock(&ctx->usb_devs_lock);
-	for_each_device_safe(ctx, dev, next) {
-		list_del(&dev->list);
-		libusb_unref_device(dev);
-	}
-	usbi_mutex_unlock(&ctx->usb_devs_lock);
-		
 	/* a few sanity checks. don't bother with locking because unless
 	 * there is an application bug, nobody will be accessing these. */
 	if (!list_empty(&ctx->usb_devs))
