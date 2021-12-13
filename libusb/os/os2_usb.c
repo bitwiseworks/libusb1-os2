@@ -230,6 +230,8 @@ void AsyncHandlingThread(void *arg)
         np = STAILQ_FIRST(&gTransferQueueHead);
         while (np)
         {
+            npnext       = STAILQ_NEXT(np,entries);
+
             itransfer    = np->itransfer;
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
             toRemove     = FALSE;
@@ -243,7 +245,6 @@ void AsyncHandlingThread(void *arg)
                 usbi_dbg("dev handle or device have become invalid !");
 
                 DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-                npnext       = STAILQ_NEXT(np,entries);
                 STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
                 np = npnext;
                 continue;
@@ -352,7 +353,6 @@ void AsyncHandlingThread(void *arg)
 
             }
             DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-            npnext       = STAILQ_NEXT(np,entries);
             if (toRemove)
             {
                 STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
@@ -391,6 +391,8 @@ void AsyncIsoHandlingThread(void *arg)
         np = STAILQ_FIRST(&gTransferIsoQueueHead);
         while (np)
         {
+            npnext       = STAILQ_NEXT(np,entries);
+
             itransfer    = np->itransfer;
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 
@@ -403,7 +405,6 @@ void AsyncIsoHandlingThread(void *arg)
                 usbi_dbg("dev handle or device have become invalid !");
 
                 DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
-                npnext       = STAILQ_NEXT(np,entries);
                 STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
                 np = npnext;
                 continue;
@@ -454,7 +455,6 @@ void AsyncIsoHandlingThread(void *arg)
             usbi_signal_transfer_completion(itransfer);
 
             DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
-            npnext       = STAILQ_NEXT(np,entries);
             STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
             np = npnext;
         }
