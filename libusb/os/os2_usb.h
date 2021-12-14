@@ -52,7 +52,9 @@ typedef struct _USBCALLS_MY_RSP_
 } USBCALLS_MY_RSP, *PUSBCALLS_MY_RSP;
 #pragma pack()
 
-struct device_priv {
+struct device_priv
+{
+   unsigned int            numOpens;
    unsigned int            numIsoBuffsInUse;                /* only used for isochronous devices */
    unsigned long           fd;                              /* device file descriptor */
    struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */

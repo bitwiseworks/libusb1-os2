@@ -561,6 +561,7 @@ os2_get_device_list(struct libusb_context * ctx,
          dpriv = (struct device_priv *)usbi_get_device_priv(dev);
          dpriv->fd = -1U;
          dpriv->numIsoBuffsInUse = 0;
+         dpriv->numOpens = 0;
          memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
          memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
          memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
@@ -592,9 +593,12 @@ os2_open(struct libusb_device_handle *handle)
    APIRET    rc = NO_ERROR;
    int       usbhandle;
 
-   usbi_dbg("on entry: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
+   /* take device mutex: we need to manipulate per device control var "numOpens" */
+   usbi_mutex_lock(&dev->lock);
 
-   if (dev->refcnt < 4)
+   usbi_dbg("on entry: fd %#.8lx, numOpens: %u", dpriv->fd,dpriv->numOpens);
+
+   if (dpriv->numOpens == 0)
    {
       rc = UsbOpen( (PUSBHANDLE)&usbhandle,
          (USHORT)dev->device_descriptor.idVendor,
@@ -618,7 +622,11 @@ os2_open(struct libusb_device_handle *handle)
       /* set device configuration to 1st configuration */
       rc = UsbDeviceSetConfiguration (dpriv->fd,1);
       usbi_dbg("UsbDeviceSetConfiguration: rc = %lu", rc);
-   } /* endif */
+   }
+   /* endif */
+   dpriv->numOpens++;
+
+   usbi_mutex_unlock(&dev->lock);
 
    return(LIBUSB_SUCCESS);
 }
@@ -635,7 +643,14 @@ os2_close(struct libusb_device_handle *handle)
    struct entry *np=NULL;
    struct entry *npnext = NULL;
 
-   usbi_dbg("on entry: fd %#.8lx, ref cnt: %d", dpriv->fd,dev->refcnt);
+   /* take device mutex: we need to manipulate per device control var "numOpens" */
+   usbi_mutex_lock(&dev->lock);
+
+   if (dpriv->numOpens)
+   {
+       dpriv->numOpens--;
+   }
+   usbi_dbg("on entry: fd %#.8lx, numOpens: %u", dpriv->fd,dpriv->numOpens);
 
    /*
     * it is possible that applications will call "close" on a device
@@ -685,7 +700,7 @@ os2_close(struct libusb_device_handle *handle)
    }
    DosReleaseMutexSem(ghTransferIsoQueueMutex);
 
-   if (dev->refcnt < 4) {
+   if (dpriv->numOpens == 0) {
       rc = UsbClose(dpriv->fd);
 
       usbi_dbg( "UsbClose: id= %#04x:%#04x  rc= %lu",
@@ -694,7 +709,10 @@ os2_close(struct libusb_device_handle *handle)
           rc);
 
       dpriv->fd = -1U;
-   } /* endif */
+   }
+   /* endif */
+
+   usbi_mutex_unlock(&dev->lock);
 }
 
 static int
