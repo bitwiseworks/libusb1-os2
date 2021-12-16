@@ -670,7 +670,7 @@ os2_close(struct libusb_device_handle *handle)
       transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
       tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
-      usbi_dbg("unlinking transfer: %p",transfer);
+      usbi_dbg("non-iso queue, unlinking transfer: %p",transfer);
 
       DosCloseEventSem(tpriv->hEventSem);
       usbi_dbg("DosCloseEventSem rc = %lu",rc);
@@ -689,7 +689,7 @@ os2_close(struct libusb_device_handle *handle)
       transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
       tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
-      usbi_dbg("unlinking transfer: %p",transfer);
+      usbi_dbg("iso queue, unlinking transfer: %p",transfer);
 
       DosCloseEventSem(tpriv->hEventSem);
       usbi_dbg("DosCloseEventSem rc = %lu",rc);
@@ -948,6 +948,9 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
       err = _async_irq_transfer(itransfer);
       break;
    case LIBUSB_TRANSFER_TYPE_BULK_STREAM:
+      err = LIBUSB_ERROR_NOT_SUPPORTED;
+      break;
+   default:
       err = LIBUSB_ERROR_NOT_SUPPORTED;
       break;
    }
