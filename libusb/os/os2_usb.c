@@ -466,6 +466,7 @@ os2_get_device_list(struct libusb_context * ctx,
    struct libusb_device *dev;
    struct device_priv *dpriv;
    struct usbi_device_descriptor *pDeviceDescriptor = NULL;
+   struct discovered_devs *ddd;
 
    unsigned char scratchBuf[LIBUSB_DT_DEVICE_SIZE+4096];
    GETDEVINFODATA info;
@@ -567,10 +568,13 @@ os2_get_device_list(struct libusb_context * ctx,
             continue;
          }
       }
-      if (discovered_devs_append(*discdevs, dev) == NULL)
+      ddd = discovered_devs_append(*discdevs, dev);
+      if (ddd == NULL) {
          return(LIBUSB_ERROR_NO_MEM);
-
+      }
       libusb_unref_device(dev);
+
+      *discdevs = ddd;
    }
    return(LIBUSB_SUCCESS);
 }
