@@ -22,18 +22,8 @@
 
 #include <config.h>
 
-#include <sys/time.h>
-#include <sys/types.h>
-
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
 #include <sys/queue.h>
-
-#include <stdint.h>
 #include <usbcalls.h>
 
 #include "libusb.h"
@@ -485,7 +475,7 @@ os2_get_device_list(struct libusb_context * ctx,
 
    rc = UsbQueryNumberDevices( &cntDev);
    if (rc) {
-      usbi_dbg( "unable to query number of USB devices - rc= %lu", rc);
+      usbi_dbg( "unable to query number of USB devices - rc = %lu", rc);
       return(LIBUSB_ERROR_IO);
    }
    usbi_dbg( "%lu devices detected", cntDev);
@@ -494,7 +484,7 @@ os2_get_device_list(struct libusb_context * ctx,
       len = sizeof(info);
       rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
       if (rc) {
-         usbi_dbg( "unable to query device info - device= %lu  rc= %lu", ctr, rc);
+         usbi_dbg( "unable to query device info - device= %lu  rc = %lu", ctr, rc);
          return(LIBUSB_ERROR_IO);
       }
 
@@ -606,7 +596,7 @@ os2_open(struct libusb_device_handle *handle)
          (USHORT)dev->device_descriptor.bcdDevice,
          (USHORT)USB_OPEN_FIRST_UNUSED);
 
-      usbi_dbg( "UsbOpen: id= %#04x:%#04x  rc= %lu",
+      usbi_dbg( "UsbOpen: id = %#04x:%#04x  rc = %lu",
                 dev->device_descriptor.idVendor,
                 dev->device_descriptor.idProduct,
                 rc);
@@ -703,7 +693,7 @@ os2_close(struct libusb_device_handle *handle)
    if (dpriv->numOpens == 0) {
       rc = UsbClose(dpriv->fd);
 
-      usbi_dbg( "UsbClose: id= %#04x:%#04x  rc= %lu",
+      usbi_dbg( "UsbClose: id = %#04x:%#04x  rc = %lu",
           dev->device_descriptor.idVendor,
           dev->device_descriptor.idProduct,
           rc);
@@ -766,7 +756,7 @@ os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
       len = sizeof(info);
       rc = UsbQueryDeviceInfo( ctr,&len, (PUCHAR)&info);
       if (rc) {
-         usbi_dbg( "unable to query device info -  rc= %lu", rc);
+         usbi_dbg( "unable to query device info - rc = %lu", rc);
          return(LIBUSB_ERROR_IO);
       } /* endif */
       if (info.rmDevHandle == dev->session_data) {
@@ -820,8 +810,8 @@ os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
    if (_is_streaming_interface(dev,iface) && dpriv->endpoint[iface] && dpriv->altsetting[iface])
    {
       rc = UsbInterfaceSetAltSetting(dpriv->fd,iface,0);
+      usbi_dbg("UsbInterfaceSetAltSetting for if %#02x with alt 0, rc = %lu",iface,rc);
       if (NO_ERROR != rc) {
-         usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",iface,rc);
          errorcode = _apiret_to_libusb(rc);
       }
       dpriv->endpoint[iface] = 0;
@@ -843,8 +833,9 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
 //      uint8_t newsetting=0xFFU;
 
    rc = UsbInterfaceSetAltSetting(dpriv->fd,iface,altsetting);
+   usbi_dbg("UsbInterfaceSetAltSetting for if %#02x, alt %#02x, rc = %lu",iface,altsetting,rc);
+
    if (NO_ERROR != rc) {
-      usbi_dbg("UsbInterfaceSetAltSetting cannot set alternate setting, apiret:%lu",rc);
       return(_apiret_to_libusb(rc));
    }
 
@@ -863,14 +854,14 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
                              altsetting,
                              NUM_ISO_BUFFS, /* number of HC internal ISO buffer management structures */
                              packet_len);
-          usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, packet length %u, apiret:%lu",iface,altsetting,endpoint,packet_len,rc);
+          usbi_dbg("UsbIsoOpen for if %#02x, alt %#02x, ep %#02x, packet length %u, rc =  %lu",iface,altsetting,endpoint,packet_len,rc);
           errorcode = _apiret_to_libusb(rc);
           dpriv->endpoint[iface] = endpoint;
        }
        else
        {
           rc = UsbIsoClose(dpriv->fd,dpriv->endpoint[iface],dpriv->altsetting[iface]);
-          usbi_dbg("UsbIsoClose for if %#02x, alt %#02x, ep %#02x, apiret: %lu",iface,dpriv->altsetting[iface],dpriv->endpoint[iface],rc);
+          usbi_dbg("UsbIsoClose for if %#02x, alt %#02x, ep %#02x, rc = %lu",iface,dpriv->altsetting[iface],dpriv->endpoint[iface],rc);
           errorcode = _apiret_to_libusb(rc);
        }
    }
@@ -1056,8 +1047,8 @@ static void _call_iso_close(struct libusb_device *dev)
                if (dpriv->endpoint[i] && dpriv->altsetting[i])
                {
                   rc = UsbInterfaceSetAltSetting(dpriv->fd,i,0);
+                  usbi_dbg("UsbInterfaceSetAltSetting for if %#02x, alt 0, rc = %lu",i,rc);
                   if (NO_ERROR != rc) {
-                     usbi_dbg("UsbInterfaceSetAltSetting failed for if %#02x with alt 0, apiret: %lu",i,rc);
                   }
                   dpriv->endpoint[i] = 0;
                   dpriv->altsetting[i] = 0;
