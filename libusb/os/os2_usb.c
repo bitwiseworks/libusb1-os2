@@ -987,9 +987,60 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
 static void
 os2_clear_transfer_priv(struct usbi_transfer *itransfer)
 {
-   UNUSED(itransfer);
+   struct usbi_transfer *ixfer = NULL;
+   struct transfer_priv *tpriv = NULL;
+   struct libusb_transfer *transfer = NULL;
+   struct entry *np=NULL;
+   struct entry *npnext = NULL;
+    APIRET rc = NO_ERROR;
 
-   usbi_dbg(" ");
+   DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+   np = STAILQ_FIRST(&gTransferQueueHead);
+   while (np)
+   {
+      npnext       = STAILQ_NEXT(np,entries);
+
+      ixfer        = np->itransfer;
+      if (itransfer == ixfer)
+      {
+         transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(ixfer);
+         tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(ixfer);
+
+         usbi_dbg("non-iso queue, unlinking transfer: %p",transfer);
+
+         DosCloseEventSem(tpriv->hEventSem);
+         usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+         STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+         libusb_free_transfer(transfer);
+      }
+      np = npnext;
+   }
+   DosReleaseMutexSem(ghTransferQueueMutex);
+
+   DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+   np = STAILQ_FIRST(&gTransferIsoQueueHead);
+   while (np)
+   {
+      npnext       = STAILQ_NEXT(np,entries);
+
+      ixfer        = np->itransfer;
+      if (itransfer == ixfer)
+      {
+         transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(ixfer);
+         tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(ixfer);
+
+         usbi_dbg("iso queue, unlinking transfer: %p",transfer);
+
+         DosCloseEventSem(tpriv->hEventSem);
+         usbi_dbg("DosCloseEventSem rc = %lu",rc);
+
+         STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+         libusb_free_transfer(transfer);
+      }
+      np = npnext;
+   }
+   DosReleaseMutexSem(ghTransferIsoQueueMutex);
 }
 
 static int
