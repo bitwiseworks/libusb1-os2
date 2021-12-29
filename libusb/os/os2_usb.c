@@ -88,7 +88,7 @@ static int _async_iso_transfer(struct usbi_transfer *);
 
 const struct usbi_os_backend usbi_backend = {
    "Asynchronous OS/2 backend",
-   0,
+   USBI_CAP_HAS_HID_ACCESS, /* OS/2 USB driver stack makes no attempt to prevent arbitrary access to any USB device */
    NULL,          /* init() */
    NULL,          /* exit() */
    NULL,          /* set_option() TODO TODO TODO */
