@@ -54,27 +54,39 @@ static inline semaphore_t semaphore_create(void)
 	char name[50];
 
 	sprintf(name, "/org.libusb.example.dpfp_threaded:%d", (int)getpid());
+#ifndef __OS2__
 	semaphore = sem_open(name, O_CREAT | O_EXCL, 0, 0);
+#else
+	semaphore = SEM_FAILED;
+#endif
 	if (semaphore == SEM_FAILED)
 		return NULL;
 	/* Remove semaphore so that it does not persist after process exits */
+#ifndef __OS2__
 	(void)sem_unlink(name);
+#endif
 	return semaphore;
 }
 
 static inline void semaphore_give(semaphore_t semaphore)
 {
+#ifndef __OS2__
 	(void)sem_post(semaphore);
+#endif
 }
 
 static inline void semaphore_take(semaphore_t semaphore)
 {
+#ifndef __OS2__
 	(void)sem_wait(semaphore);
+#endif
 }
 
 static inline void semaphore_destroy(semaphore_t semaphore)
 {
+#ifndef __OS2__
 	(void)sem_close(semaphore);
+#endif
 }
 
 static inline int thread_create(thread_t *thread,
