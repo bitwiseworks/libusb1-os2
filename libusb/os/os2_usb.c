@@ -646,55 +646,57 @@ os2_close(struct libusb_device_handle *handle)
    }
    usbi_dbg("on entry: fd %#.8lx, numOpens: %u", dpriv->fd,dpriv->numOpens);
 
-   /*
-    * it is possible that applications will call "close" on a device
-    * immediately followed by freeing transfers that are still pending
-    * unfortunately, our transfer queues (non-iso and iso) hold references
-    * to these transfers because there is no notification mechanism
-    * from apps to this library that would allow us to unhook them
-    * we have to remove all still pending transfers from our queues
-    * so that we don't get a trap on accessing already freed transfers
-    * from our worker threads
-    */
-   DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-   np = STAILQ_FIRST(&gTransferQueueHead);
-   while (np)
+
+   if (dpriv->numOpens == 0)
    {
-      itransfer    = np->itransfer;
-      transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-      tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+      /*
+       * it is possible that applications will call "close" on a device
+       * immediately followed by freeing transfers that are still pending
+       * unfortunately, our transfer queues (non-iso and iso) hold references
+       * to these transfers because there is no notification mechanism
+       * from apps to this library that would allow us to unhook them
+       * we have to remove all still pending transfers from our queues
+       * so that we don't get a trap on accessing already freed transfers
+       * from our worker threads
+       */
+      DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+      np = STAILQ_FIRST(&gTransferQueueHead);
+      while (np)
+      {
+         itransfer    = np->itransfer;
+         transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+         tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
-      usbi_dbg("non-iso queue, unlinking transfer: %p",transfer);
+         usbi_dbg("non-iso queue, unlinking transfer: %p",transfer);
 
-      DosCloseEventSem(tpriv->hEventSem);
-      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+         DosCloseEventSem(tpriv->hEventSem);
+         usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
-      npnext       = STAILQ_NEXT(np,entries);
-      STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
-      np = npnext;
-   }
-   DosReleaseMutexSem(ghTransferQueueMutex);
+         npnext       = STAILQ_NEXT(np,entries);
+         STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+         np = npnext;
+      }
+      DosReleaseMutexSem(ghTransferQueueMutex);
 
-   DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
-   np = STAILQ_FIRST(&gTransferIsoQueueHead);
-   while (np)
-   {
-      itransfer    = np->itransfer;
-      transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-      tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+      DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+      np = STAILQ_FIRST(&gTransferIsoQueueHead);
+      while (np)
+      {
+         itransfer    = np->itransfer;
+         transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+         tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
-      usbi_dbg("iso queue, unlinking transfer: %p",transfer);
+         usbi_dbg("iso queue, unlinking transfer: %p",transfer);
 
-      DosCloseEventSem(tpriv->hEventSem);
-      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+         DosCloseEventSem(tpriv->hEventSem);
+         usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
-      npnext       = STAILQ_NEXT(np,entries);
-      STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
-      np = npnext;
-   }
-   DosReleaseMutexSem(ghTransferIsoQueueMutex);
+         npnext       = STAILQ_NEXT(np,entries);
+         STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+         np = npnext;
+      }
+      DosReleaseMutexSem(ghTransferIsoQueueMutex);
 
-   if (dpriv->numOpens == 0) {
       rc = UsbClose(dpriv->fd);
 
       usbi_dbg( "UsbClose: id = %#04x:%#04x  rc = %lu",
