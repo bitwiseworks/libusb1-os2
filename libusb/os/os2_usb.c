@@ -1014,7 +1014,6 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
          usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
          STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
-         libusb_free_transfer(transfer);
       }
       np = npnext;
    }
@@ -1038,7 +1037,6 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
          usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
          STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
-         libusb_free_transfer(transfer);
       }
       np = npnext;
    }
