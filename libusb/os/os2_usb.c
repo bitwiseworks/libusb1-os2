@@ -994,7 +994,7 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
    struct libusb_transfer *transfer = NULL;
    struct entry *np=NULL;
    struct entry *npnext = NULL;
-    APIRET rc = NO_ERROR;
+   APIRET rc = NO_ERROR;;
 
    DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
    np = STAILQ_FIRST(&gTransferQueueHead);
@@ -1010,7 +1010,7 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
 
          usbi_dbg("non-iso queue, unlinking transfer: %p",transfer);
 
-         DosCloseEventSem(tpriv->hEventSem);
+         rc = DosCloseEventSem(tpriv->hEventSem);
          usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
          STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
@@ -1033,7 +1033,7 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
 
          usbi_dbg("iso queue, unlinking transfer: %p",transfer);
 
-         DosCloseEventSem(tpriv->hEventSem);
+         rc = DosCloseEventSem(tpriv->hEventSem);
          usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
          STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
@@ -1173,6 +1173,10 @@ _apiret_to_libusb(ULONG err)
    switch (err) {
    case NO_ERROR:
       return(LIBUSB_SUCCESS);
+   case (ERROR_USER_DEFINED_BASE | ERROR_ALREADY_ASSIGNED):
+       return(LIBUSB_ERROR_INVALID_PARAM);
+   case (ERROR_USER_DEFINED_BASE | ERROR_DEV_NOT_EXIST):
+       return(LIBUSB_ERROR_NO_DEVICE);
    case USB_IORB_FAILED:
       return(LIBUSB_ERROR_IO);
    case ERROR_INVALID_PARAMETER:
@@ -1439,9 +1443,7 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          usbi_dbg("UsbStartIsoTransfer num iso packets %u, packet len %u, buffer len %u",tpriv->ToProcess,packet_len,length);
          usbi_dbg("UsbStartIsoTransfer rc = %lu",rc);
 
-         if (NO_ERROR != rc) {
-            errorcode = LIBUSB_ERROR_IO;
-         }
+         errorcode = _apiret_to_libusb(rc);
       }
 
       if (LIBUSB_SUCCESS == errorcode) {
@@ -1456,7 +1458,7 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
 
    if (LIBUSB_SUCCESS != errorcode)
    {
-       if (tpriv->hEventSem) DosCloseEventSem(tpriv->hEventSem);
+       DosCloseEventSem(tpriv->hEventSem);
    }
    else
    {
