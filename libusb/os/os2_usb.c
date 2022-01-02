@@ -680,7 +680,7 @@ os2_close(struct libusb_device_handle *handle)
          * which will lead to the device not being properly destroyed in the libusb library
          * we unref it once so that the libusb ref cnt can finally reach zero
          */
-         libusb_unref_device(transfer->dev_handle->dev);
+         libusb_unref_device(dev);
 
          npnext       = STAILQ_NEXT(np,entries);
          STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
@@ -709,7 +709,7 @@ os2_close(struct libusb_device_handle *handle)
          * which will lead to the device not being properly destroyed in the libusb library
          * we unref it once so that the libusb ref cnt can finally reach zero
          */
-         libusb_unref_device(transfer->dev_handle->dev);
+         libusb_unref_device(dev);
 
          npnext       = STAILQ_NEXT(np,entries);
          STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
@@ -1033,15 +1033,12 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
          rc = DosCloseEventSem(tpriv->hEventSem);
          usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
-        /*
-         * libusb increments the ref cnt on every "libusb_submit_transfer"
-         * and decrements it on every "usbi_handle_transfer_completion"
-         * however a transfer that is never executed (and therefore, still chained)
-         * will miss the decrement because it is never completed,
-         * which will lead to the device not being properly destroyed in the libusb library
-         * we unref it once so that the libusb ref cnt can finally reach zero
-         */
-         libusb_unref_device(transfer->dev_handle->dev);
+         /*
+          * there is no need to do an "libusb_unref_device" because
+          * the calling routine "usbi_handle_disconnect" will call
+          * "usbi_handle_transfer_completion" if this transfer is still pending
+          * "usbi_handle_transfer_completion" in turn will call "libusb_unref_device"
+          */
 
          STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
       }
@@ -1066,15 +1063,12 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
          rc = DosCloseEventSem(tpriv->hEventSem);
          usbi_dbg("DosCloseEventSem rc = %lu",rc);
 
-        /*
-         * libusb increments the ref cnt on every "libusb_submit_transfer"
-         * and decrements it on every "usbi_handle_transfer_completion"
-         * however a transfer that is never executed (and therefore, still chained)
-         * will miss the decrement because it is never completed,
-         * which will lead to the device not being properly destroyed in the libusb library
-         * we unref it once so that the libusb ref cnt can finally reach zero
-         */
-         libusb_unref_device(transfer->dev_handle->dev);
+         /*
+          * there is no need to do an "libusb_unref_device" because
+          * the calling routine "usbi_handle_disconnect" will call
+          * "usbi_handle_transfer_completion" if this transfer is still pending
+          * "usbi_handle_transfer_completion" in turn will call "libusb_unref_device"
+          */
 
          STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
       }
