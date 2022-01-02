@@ -636,18 +636,24 @@ os2_close(struct libusb_device_handle *handle)
    struct transfer_priv *tpriv = NULL;
    struct entry *np=NULL;
    struct entry *npnext = NULL;
+   unsigned int numOpens = 0;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
    usbi_mutex_lock(&dev->lock);
-
    if (dpriv->numOpens)
    {
        dpriv->numOpens--;
+       numOpens = dpriv->numOpens;
    }
-   usbi_dbg("on entry: fd %#.8lx, numOpens: %u", dpriv->fd,dpriv->numOpens);
+   /*
+    * free the dev mutex here, because it will be claimed by libusb_unref_dev further below !
+    */
+   usbi_mutex_unlock(&dev->lock);
+
+   usbi_dbg("on entry: fd %#.8lx, numOpens: %u", dpriv->fd,numOpens);
 
 
-   if (dpriv->numOpens == 0)
+   if (numOpens == 0)
    {
       /*
        * it is possible that applications will call "close" on a device
@@ -727,8 +733,6 @@ os2_close(struct libusb_device_handle *handle)
       dpriv->fd = -1U;
    }
    /* endif */
-
-   usbi_mutex_unlock(&dev->lock);
 }
 
 static int
