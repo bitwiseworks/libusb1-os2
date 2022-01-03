@@ -263,8 +263,6 @@ void AsyncHandlingThread(void *arg)
                        toRemove = TRUE;
 
                        itransfer->transferred = 0;
-
-                       usbi_signal_transfer_completion(itransfer);
                    }
                    else
                    {
@@ -275,10 +273,9 @@ void AsyncHandlingThread(void *arg)
 
                       tpriv->Processed += tpriv->Response.usDataLength;
 
+                      tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
                       itransfer->transferred = tpriv->Processed;
                       usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-                      tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
-                      usbi_signal_transfer_completion(itransfer);
                    }
                }
                break;
@@ -300,8 +297,6 @@ void AsyncHandlingThread(void *arg)
                        toRemove = TRUE;
 
                        itransfer->transferred = tpriv->Processed;
-
-                       usbi_signal_transfer_completion(itransfer);
                    }
                    else
                    {
@@ -328,10 +323,9 @@ void AsyncHandlingThread(void *arg)
 
                          toRemove = TRUE;
 
+                         tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
                          itransfer->transferred = tpriv->Processed;
                          usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-                         tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
-                         usbi_signal_transfer_completion(itransfer);
                       }
                    }
                }
@@ -346,6 +340,7 @@ void AsyncHandlingThread(void *arg)
             if (toRemove)
             {
                 STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+                usbi_signal_transfer_completion(itransfer);
             }
             np = npnext;
         }
@@ -416,6 +411,10 @@ void AsyncIsoHandlingThread(void *arg)
                   usbi_dbg("transfer was cancelled !");
 
                   itransfer->transferred = 0;
+                  for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
+                      transfer->iso_packet_desc[j].actual_length = 0;
+                      transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_CANCELLED;
+                  }
                }
                else
                {
@@ -428,9 +427,14 @@ void AsyncIsoHandlingThread(void *arg)
                  tpriv->Processed += tpriv->ToProcess;
                }
             }
-            else {
-               itransfer->transferred = 0;
+            else
+            {
                tpriv->status = LIBUSB_TRANSFER_ERROR;
+               itransfer->transferred = 0;
+               for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
+                   transfer->iso_packet_desc[j].actual_length = 0;
+                   transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_ERROR;
+               }
             }
 
             rc = DosCloseEventSem(tpriv->hEventSem);
@@ -442,10 +446,10 @@ void AsyncIsoHandlingThread(void *arg)
             usbi_mutex_unlock(&dev->lock);
 
             usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-            usbi_signal_transfer_completion(itransfer);
 
             DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
             STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+            usbi_signal_transfer_completion(itransfer);
             np = npnext;
         }
         DosReleaseMutexSem(ghTransferIsoQueueMutex);
