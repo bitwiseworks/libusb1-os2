@@ -206,13 +206,14 @@ void AsyncHandlingThread(void *arg)
     struct usbi_transfer *itransfer = NULL;
     struct transfer_priv *tpriv = NULL;
     struct libusb_transfer *transfer = NULL;
-    struct libusb_device *dev = NULL;
-    struct device_priv *dpriv = NULL;
+    struct libusb_device *dev        = NULL;
+    struct device_priv *dpriv        = NULL;
     APIRET rc = NO_ERROR;
     ULONG postCount = 0;
     struct entry *np=NULL;
     struct entry *npnext = NULL;
-    BOOL toRemove = FALSE;
+
+    usbi_dbg("handling ctrl/irq/bulk");
 
     do
     {
@@ -224,7 +225,6 @@ void AsyncHandlingThread(void *arg)
 
             itransfer    = np->itransfer;
             transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-            toRemove     = FALSE;
 
             DosReleaseMutexSem(ghTransferQueueMutex);
 
@@ -240,9 +240,9 @@ void AsyncHandlingThread(void *arg)
                 continue;
             }
 
+            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
             dev          = transfer->dev_handle->dev;
             dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
-            tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
 
             postCount    = 0;
 
@@ -257,25 +257,31 @@ void AsyncHandlingThread(void *arg)
 
                    if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
                    {
-                       DosCloseEventSem(tpriv->hEventSem);
-                       usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-                       toRemove = TRUE;
-
                        itransfer->transferred = 0;
+
+                       DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+                       STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+                       rc = DosCloseEventSem(tpriv->hEventSem);
+                       usbi_dbg("DosCloseEventSem, rc = %lu",rc);
+                       tpriv->hEventSem      = NULLHANDLE;
+                       usbi_signal_transfer_completion(itransfer);
+                       np = npnext;
                    }
                    else
                    {
-                      rc = DosCloseEventSem(tpriv->hEventSem);
-                      usbi_dbg("DosCloseEventSem rc = %lu",rc);
+                       tpriv->Processed += tpriv->Response.usDataLength;
 
-                      toRemove = TRUE;
+                       tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
+                       itransfer->transferred = tpriv->Processed;
+                       usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
 
-                      tpriv->Processed += tpriv->Response.usDataLength;
-
-                      tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
-                      itransfer->transferred = tpriv->Processed;
-                      usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+                       DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+                       STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+                       DosCloseEventSem(tpriv->hEventSem);
+                       usbi_dbg("DosCloseEventSem rc = %lu",rc);
+                       tpriv->hEventSem      = NULLHANDLE;
+                       usbi_signal_transfer_completion(itransfer);
+                       np = npnext;
                    }
                }
                break;
@@ -291,12 +297,15 @@ void AsyncHandlingThread(void *arg)
 
                    if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
                    {
-                       DosCloseEventSem(tpriv->hEventSem);
-                       usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-                       toRemove = TRUE;
-
                        itransfer->transferred = tpriv->Processed;
+
+                       DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+                       STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+                       rc = DosCloseEventSem(tpriv->hEventSem);
+                       usbi_dbg("DosCloseEventSem, rc = %lu",rc);
+                       tpriv->hEventSem      = NULLHANDLE;
+                       usbi_signal_transfer_completion(itransfer);
+                       np = npnext;
                    }
                    else
                    {
@@ -315,17 +324,23 @@ void AsyncHandlingThread(void *arg)
                           usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
                           usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
                           usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
+
+                         DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+                         np = npnext;
                       }
                       else
                       {
-                         rc = DosCloseEventSem(tpriv->hEventSem);
-                         usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-                         toRemove = TRUE;
-
                          tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
                          itransfer->transferred = tpriv->Processed;
                          usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+
+                         DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+                         STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+                         DosCloseEventSem(tpriv->hEventSem);
+                         usbi_dbg("DosCloseEventSem rc = %lu",rc);
+                         tpriv->hEventSem      = NULLHANDLE;
+                         usbi_signal_transfer_completion(itransfer);
+                         np = npnext;
                       }
                    }
                }
@@ -333,16 +348,16 @@ void AsyncHandlingThread(void *arg)
 
             default:
                usbi_dbg("unknown transfer type:%u",transfer->type);
+               tpriv->status = LIBUSB_TRANSFER_ERROR;
+               DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+               STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
+               rc = DosCloseEventSem(tpriv->hEventSem);
+               usbi_dbg("DosCloseEventSem, rc = %lu",rc);
+               tpriv->hEventSem      = NULLHANDLE;
+               usbi_signal_transfer_completion(itransfer);
+               np = npnext;
                break;
-
             }
-            DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-            if (toRemove)
-            {
-                STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
-                usbi_signal_transfer_completion(itransfer);
-            }
-            np = npnext;
         }
         DosReleaseMutexSem(ghTransferQueueMutex);
 
@@ -365,10 +380,11 @@ void AsyncIsoHandlingThread(void *arg)
     unsigned int j = 0;
     struct entry *np=NULL;
     struct entry *npnext = NULL;
+    ULONG postCount;
 
 
     rc = DosSetPriority(PRTYS_THREAD,PRTYC_FOREGROUNDSERVER,0,0);
-    usbi_dbg("DosSetPriority,  rc = %lu",rc);
+    usbi_dbg("handling iso, DosSetPriority,  rc = %lu",rc);
 
     do
     {
@@ -401,56 +417,74 @@ void AsyncIsoHandlingThread(void *arg)
 
             rc = DosWaitEventSem(tpriv->hEventSem,SEM_INDEFINITE_WAIT);
             usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
+            rc = DosResetEventSem(tpriv->hEventSem,&postCount);
+            usbi_dbg("DosResetEventSem,  rc = %lu",rc);
 
             if (NO_ERROR == rc)
             {
                usbi_dbg("iso: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-               if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
+               if ((LIBUSB_TRANSFER_CANCELLED == tpriv->status) && tpriv->Response.usStatus)
                {
                   usbi_dbg("transfer was cancelled !");
 
                   itransfer->transferred = 0;
                   for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
                       transfer->iso_packet_desc[j].actual_length = 0;
-                      transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_CANCELLED;
+                      transfer->iso_packet_desc[j].status        = tpriv->status;
                   }
+                  usbi_mutex_lock(&dev->lock);
+                  dpriv->numIsoBuffsInUse -= 1;
+                  usbi_dbg("Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
+                  usbi_mutex_unlock(&dev->lock);
+
+                  usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+
+                  DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+                  STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+                  rc = DosCloseEventSem(tpriv->hEventSem);
+                  usbi_dbg("DosCloseEventSem, rc = %lu",rc);
+                  tpriv->hEventSem      = NULLHANDLE;
+                  usbi_signal_transfer_completion(itransfer);
+                  np = npnext;
                }
                else
                {
-                 tpriv->status = (0 == tpriv->Response.usStatus) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
+                 usbi_dbg("transfer succeeded !");
+
+                 tpriv->status = (0 == tpriv->Response.usStatus ) ? LIBUSB_TRANSFER_COMPLETED : LIBUSB_TRANSFER_ERROR;
                  for(j=0,itransfer->transferred = 0;j<tpriv->ToProcess;j++) {
                      itransfer->transferred                    += tpriv->Response.usFrameSize[j];
                      transfer->iso_packet_desc[j].actual_length = tpriv->Response.usFrameSize[j];
                      transfer->iso_packet_desc[j].status        = tpriv->status;
                  }
                  tpriv->Processed += tpriv->ToProcess;
+
+                 usbi_mutex_lock(&dev->lock);
+                 dpriv->numIsoBuffsInUse -= 1;
+                 usbi_dbg("Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
+                 usbi_mutex_unlock(&dev->lock);
+
+                 usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
+
+                 DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+                 if (LIBUSB_TRANSFER_ERROR == tpriv->status)
+                 {
+                    STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
+                    rc = DosCloseEventSem(tpriv->hEventSem);
+                    usbi_dbg("DosCloseEventSem, rc = %lu",rc);
+                    tpriv->hEventSem      = NULLHANDLE;
+                 }
+                 usbi_signal_transfer_completion(itransfer);
+                 np = npnext;
                }
             }
             else
             {
-               tpriv->status = LIBUSB_TRANSFER_ERROR;
-               itransfer->transferred = 0;
-               for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
-                   transfer->iso_packet_desc[j].actual_length = 0;
-                   transfer->iso_packet_desc[j].status        = LIBUSB_TRANSFER_ERROR;
-               }
+               DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+               np = npnext;
+               continue;
             }
-
-            rc = DosCloseEventSem(tpriv->hEventSem);
-            usbi_dbg("DosCloseEventSem, rc = %lu",rc);
-
-            usbi_mutex_lock(&dev->lock);
-            dpriv->numIsoBuffsInUse -= 1;
-            usbi_dbg("Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
-            usbi_mutex_unlock(&dev->lock);
-
-            usbi_dbg("transferred %u of %u bytes",itransfer->transferred,transfer->length);
-
-            DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
-            STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
-            usbi_signal_transfer_completion(itransfer);
-            np = npnext;
         }
         DosReleaseMutexSem(ghTransferIsoQueueMutex);
 
@@ -635,11 +669,6 @@ os2_close(struct libusb_device_handle *handle)
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET    rc = NO_ERROR;
-   struct usbi_transfer *itransfer = NULL;
-   struct libusb_transfer *transfer = NULL;
-   struct transfer_priv *tpriv = NULL;
-   struct entry *np=NULL;
-   struct entry *npnext = NULL;
    unsigned int numOpens = 0;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
@@ -659,73 +688,22 @@ os2_close(struct libusb_device_handle *handle)
 
    if (numOpens == 0)
    {
-      /*
-       * it is possible that applications will call "close" on a device
-       * immediately followed by freeing transfers that are still pending
-       * unfortunately, our transfer queues (non-iso and iso) hold references
-       * to these transfers because there is no notification mechanism
-       * from apps to this library that would allow us to unhook them
-       * we have to remove all still pending transfers from our queues
-       * so that we don't get a trap on accessing already freed transfers
-       * from our worker threads
-       */
-      DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-      np = STAILQ_FIRST(&gTransferQueueHead);
-      while (np)
+      while(dpriv->numPending)
       {
-         itransfer    = np->itransfer;
-         transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-         tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+          dpriv->numPending -= 1;
 
-         usbi_dbg("non-iso queue, unlinking transfer: %p",transfer);
+          usbi_dbg("unref device once");
 
-         DosCloseEventSem(tpriv->hEventSem);
-         usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-        /*
-         * libusb increments the ref cnt on every "libusb_submit_transfer"
-         * and decrements it on every "usbi_handle_transfer_completion"
-         * however a transfer that is never executed (and therefore, still chained)
-         * will miss the decrement because it is never completed,
-         * which will lead to the device not being properly destroyed in the libusb library
-         * we unref it once so that the libusb ref cnt can finally reach zero
-         */
-         libusb_unref_device(dev);
-
-         npnext       = STAILQ_NEXT(np,entries);
-         STAILQ_REMOVE(&gTransferQueueHead,np,entry,entries);
-         np = npnext;
+         /*
+          * libusb increments the ref cnt on every "libusb_submit_transfer"
+          * and decrements it on every "usbi_handle_transfer_completion"
+          * however a transfer that is never executed (and therefore, still chained)
+          * will miss the decrement because it is never completed,
+          * which will lead to the device not being properly destroyed in the libusb library
+          * we unref it once so that the libusb ref cnt can finally reach zero
+          */
+          libusb_unref_device(dev);
       }
-      DosReleaseMutexSem(ghTransferQueueMutex);
-
-      DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
-      np = STAILQ_FIRST(&gTransferIsoQueueHead);
-      while (np)
-      {
-         itransfer    = np->itransfer;
-         transfer     = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-         tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
-
-         usbi_dbg("iso queue, unlinking transfer: %p",transfer);
-
-         DosCloseEventSem(tpriv->hEventSem);
-         usbi_dbg("DosCloseEventSem rc = %lu",rc);
-
-        /*
-         * libusb increments the ref cnt on every "libusb_submit_transfer"
-         * and decrements it on every "usbi_handle_transfer_completion"
-         * however a transfer that is never executed (and therefore, still chained)
-         * will miss the decrement because it is never completed,
-         * which will lead to the device not being properly destroyed in the libusb library
-         * we unref it once so that the libusb ref cnt can finally reach zero
-         */
-         libusb_unref_device(dev);
-
-         npnext       = STAILQ_NEXT(np,entries);
-         STAILQ_REMOVE(&gTransferIsoQueueHead,np,entry,entries);
-         np = npnext;
-      }
-      DosReleaseMutexSem(ghTransferIsoQueueMutex);
 
       rc = UsbClose(dpriv->fd);
 
@@ -1090,6 +1068,9 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 {
    struct transfer_priv *tpriv = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+   struct libusb_device *dev = transfer->dev_handle->dev;
+   struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
+
    int result = 0;
 
    usbi_dbg(" ");
@@ -1104,6 +1085,11 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
       usbi_dbg("transfer %p, transfer completed", transfer);
       result = usbi_handle_transfer_completion(itransfer, tpriv->status);
    }
+
+   usbi_mutex_lock(&dev->lock);
+   dpriv->numPending -= 1;
+   usbi_mutex_unlock(&dev->lock);
+
    return(result);
 }
 
@@ -1241,12 +1227,22 @@ _async_control_transfer(struct usbi_transfer *itransfer)
 
    struct transfer_priv *tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct device_priv *dpriv          = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
+   struct libusb_device *dev        = transfer->dev_handle->dev;
+   struct device_priv *dpriv          = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_control_setup *setup = (struct libusb_control_setup *)transfer->buffer;
    APIRET rc = NO_ERROR;
+   BOOL toChainIn = FALSE;
 
-   rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
-   usbi_dbg("DosCreateEventSem rc = %lu",rc);
+   if (!tpriv->hEventSem)
+   {
+      rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
+      if (NO_ERROR != rc) {
+         usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
+         tpriv->hEventSem = NULLHANDLE;
+         return LIBUSB_ERROR_OTHER;
+      }
+      toChainIn = TRUE;
+   }
 
    tpriv->Processed                = 0;
    tpriv->ToProcess                = setup->wLength;
@@ -1261,16 +1257,18 @@ _async_control_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("UsbStartCtrlTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartCtrlTransfer rc = %lu",rc);
 
-   if (rc)
+   if (NO_ERROR == rc)
    {
-       DosCloseEventSem(tpriv->hEventSem);
-   }
-   else
-   {
-       tpriv->element.itransfer = itransfer;
-       DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-       STAILQ_INSERT_TAIL(&gTransferQueueHead,&tpriv->element,entries);
-       DosReleaseMutexSem(ghTransferQueueMutex);
+       if (toChainIn)
+       {
+          tpriv->element.itransfer = itransfer;
+          DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+          STAILQ_INSERT_TAIL(&gTransferQueueHead,&tpriv->element,entries);
+          DosReleaseMutexSem(ghTransferQueueMutex);
+       }
+       usbi_mutex_lock(&dev->lock);
+       dpriv->numPending += 1;
+       usbi_mutex_unlock(&dev->lock);
    }
    return(_apiret_to_libusb(rc));
 }
@@ -1282,11 +1280,21 @@ _async_irq_transfer(struct usbi_transfer *itransfer)
 
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
+   struct libusb_device *dev        = transfer->dev_handle->dev;
+   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET rc = NO_ERROR;
+   BOOL toChainIn = FALSE;
 
-   rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
-   usbi_dbg("DosCreateEventSem rc = %lu",rc);
+   if (!tpriv->hEventSem)
+   {
+      rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
+      if (NO_ERROR != rc) {
+         usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
+         tpriv->hEventSem = NULLHANDLE;
+         return LIBUSB_ERROR_OTHER;
+      }
+      toChainIn = TRUE;
+   }
 
    tpriv->Processed                = 0;
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
@@ -1299,16 +1307,18 @@ _async_irq_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
 
-   if (rc)
+   if (NO_ERROR == rc)
    {
-       DosCloseEventSem(tpriv->hEventSem);
-   }
-   else
-   {
-       tpriv->element.itransfer = itransfer;
-       DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-       STAILQ_INSERT_TAIL(&gTransferQueueHead,&tpriv->element,entries);
-       DosReleaseMutexSem(ghTransferQueueMutex);
+       if (toChainIn)
+       {
+          tpriv->element.itransfer = itransfer;
+          DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+          STAILQ_INSERT_TAIL(&gTransferQueueHead,&tpriv->element,entries);
+          DosReleaseMutexSem(ghTransferQueueMutex);
+       }
+       usbi_mutex_lock(&dev->lock);
+       dpriv->numPending += 1;
+       usbi_mutex_unlock(&dev->lock);
    }
    return(_apiret_to_libusb(rc));
 }
@@ -1321,11 +1331,21 @@ _async_bulk_transfer(struct usbi_transfer *itransfer)
 
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(transfer->dev_handle->dev);
+   struct libusb_device *dev        = transfer->dev_handle->dev;
+   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET rc = NO_ERROR;
+   BOOL toChainIn = FALSE;
 
-   rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
-   usbi_dbg("DosCreateEventSem rc = %lu",rc);
+   if (!tpriv->hEventSem)
+   {
+      rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
+      if (NO_ERROR != rc) {
+         usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
+         tpriv->hEventSem = NULLHANDLE;
+         return LIBUSB_ERROR_OTHER;
+      }
+      toChainIn = TRUE;
+   }
 
    tpriv->Processed                = 0;
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
@@ -1338,16 +1358,18 @@ _async_bulk_transfer(struct usbi_transfer *itransfer)
    usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
    usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
 
-   if (rc)
+   if (NO_ERROR == rc)
    {
-       DosCloseEventSem(tpriv->hEventSem);
-   }
-   else
-   {
-       tpriv->element.itransfer = itransfer;
-       DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
-       STAILQ_INSERT_TAIL(&gTransferQueueHead,&tpriv->element,entries);
-       DosReleaseMutexSem(ghTransferQueueMutex);
+       if (toChainIn)
+       {
+          tpriv->element.itransfer = itransfer;
+          DosRequestMutexSem(ghTransferQueueMutex,SEM_INDEFINITE_WAIT);
+          STAILQ_INSERT_TAIL(&gTransferQueueHead,&tpriv->element,entries);
+          DosReleaseMutexSem(ghTransferQueueMutex);
+       }
+       usbi_mutex_lock(&dev->lock);
+       dpriv->numPending += 1;
+       usbi_mutex_unlock(&dev->lock);
    }
    return(_apiret_to_libusb(rc));
 }
@@ -1369,15 +1391,29 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
    int length = 0;
    int iface = 0;
    int errorcode = LIBUSB_SUCCESS;
+   BOOL toChainIn = FALSE;
 
    usbi_dbg("initial:num iso packets %u, buffer len %u",transfer->num_iso_packets,transfer->length);
 
+   if (!tpriv->hEventSem)
+   {
+      rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
+      if (NO_ERROR != rc) {
+         usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
+         tpriv->hEventSem = NULLHANDLE;
+         return LIBUSB_ERROR_OTHER;
+      }
+      toChainIn = TRUE;
+   }
+
    do
    {
+      tpriv->status          =
       tpriv->Processed       = 0;
       tpriv->ToProcess       = 0;
-
-      tpriv->hEventSem = NULLHANDLE;
+      tpriv->Response.usStatus        = 0;
+      tpriv->Response.usDataLength    = 0;
+      memset(tpriv->Response.usFrameSize,0,sizeof(tpriv->Response.usFrameSize));
 
       if (!transfer->num_iso_packets)
       {
@@ -1424,13 +1460,6 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
          break;
       }
 
-      rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
-      if (NO_ERROR != rc) {
-         usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
-         errorcode = LIBUSB_ERROR_OTHER;
-         break;
-      }
-
       packet_len = transfer->iso_packet_desc[0].length;
 
       /*
@@ -1446,9 +1475,6 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
        */
       num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
       if (!num_max_packets_per_execution) num_max_packets_per_execution = 1;
-
-      itransfer->transferred = 0;
-      tpriv->Processed       = 0;
 
       /* take device mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
       usbi_mutex_lock(&dev->lock);
@@ -1498,16 +1524,18 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
 
    } while (0); /* enddo */
 
-   if (LIBUSB_SUCCESS != errorcode)
+   if (LIBUSB_SUCCESS == errorcode)
    {
-       DosCloseEventSem(tpriv->hEventSem);
-   }
-   else
-   {
-       tpriv->element.itransfer = itransfer;
-       DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
-       STAILQ_INSERT_TAIL(&gTransferIsoQueueHead,&tpriv->element,entries);
-       DosReleaseMutexSem(ghTransferIsoQueueMutex);
+      if (toChainIn)
+      {
+         tpriv->element.itransfer = itransfer;
+         DosRequestMutexSem(ghTransferIsoQueueMutex,SEM_INDEFINITE_WAIT);
+         STAILQ_INSERT_TAIL(&gTransferIsoQueueHead,&tpriv->element,entries);
+         DosReleaseMutexSem(ghTransferIsoQueueMutex);
+      }
+      usbi_mutex_lock(&dev->lock);
+      dpriv->numPending += 1;
+      usbi_mutex_unlock(&dev->lock);
    }
 
    return(errorcode);

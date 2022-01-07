@@ -22,7 +22,7 @@
 #define USB_SPEED_HIGH                    2
 #define USB_SPEED_SUPER                   3
 
-#define MAX_NUM_ISO_PACKETS            4096
+#define MAX_NUM_ISO_PACKETS              64
 #define NUM_ISO_BUFFS                     8
 
 #define PACKET_SIZE_MASK            0x07FFU
@@ -50,11 +50,11 @@ typedef struct _USBCALLS_MY_RSP_
   unsigned short usDataLength;
   unsigned short usFrameSize[MAX_NUM_ISO_PACKETS];
 } USBCALLS_MY_RSP, *PUSBCALLS_MY_RSP;
-#pragma pack()
 
 struct device_priv
 {
-   unsigned int            numOpens;
+   unsigned int            numOpens;                        /* tracks the number of nested calls to os2_open */
+   unsigned int            numPending;                      /* tracks how many transfers are currently submitted but not yet completed */
    unsigned int            numIsoBuffsInUse;                /* only used for isochronous devices */
    unsigned long           fd;                              /* device file descriptor */
    struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */
@@ -73,11 +73,14 @@ STAILQ_HEAD(stailhead, entry);
 
 struct transfer_priv
 {
+   unsigned char       protect1[PAGE_SIZE];        /* USBRESMG quirk, we need to ensure that "Response" lives in its own page */
+   USBCALLS_MY_RSP     Response;                   /* structure to manage individual transfers, extended by frame size list to support iso */
+   unsigned char       protect2[PAGE_SIZE];        /* USBRESMG quirk, we need to ensure that "Response" lives in its own page */
    unsigned int        ToProcess;                  /* bytes for control/bulk/irq, packets for iso */
    unsigned int        Processed;                  /* bytes for control/bulk/irq, packets for iso */
    enum libusb_transfer_status status;
    HEV                 hEventSem;                  /* used to wait for termination event, used for all transfers */
-   USBCALLS_MY_RSP     Response;                   /* structure to manage individual transfers, extended by frame size list to support iso */
    struct entry        element;                    /* structure to allow linking into the queue of transfers to manage */
 };
+#pragma pack()
 
