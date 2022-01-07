@@ -170,9 +170,6 @@ unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
 void *ControlHandlingThread(void *arg)
 {
     struct transfer_mgmt *tp = (struct transfer_mgmt *)arg;
-
-    usbi_dbg("arg: %p",tp);
-
     struct usbi_transfer *itransfer = tp->itransfer;
     struct transfer_priv *tpriv     = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
     struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
@@ -187,8 +184,6 @@ void *ControlHandlingThread(void *arg)
        usbi_dbg("DosResetEventSem,  rc = %lu",rc);
        if (tp->toTerminate)
        {
-           tp->toTerminate = FALSE;
-           tp->inProgress  = FALSE;
            break;
        }
 
@@ -517,6 +512,8 @@ os2_close(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
+   struct libusb_transfer *transfer = NULL;
+
    APIRET    rc = NO_ERROR;
    unsigned int numOpens = 0;
    unsigned int t = 0;
@@ -544,6 +541,9 @@ os2_close(struct libusb_device_handle *handle)
       {
           if (tp->itransfer)
           {
+             transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(tp->itransfer);
+             usbi_dbg("transfer: %p, in progress: %lu",transfer,tp->inProgress);
+
              if (tp->inProgress)
              {
                  usbi_dbg("unref device once");
@@ -914,17 +914,6 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 
    usbi_dbg(" ");
 
-   if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
-   {
-      usbi_dbg("transfer %p, transfer cancelled", transfer);
-      result = usbi_handle_transfer_cancellation(itransfer);
-   }
-   else
-   {
-      usbi_dbg("transfer %p, transfer completed", transfer);
-      result = usbi_handle_transfer_completion(itransfer, tpriv->status);
-   }
-
    DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
    for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
    {
@@ -935,6 +924,17 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
        }
    }
    DosReleaseMutexSem(ghTransferMgmtMutex);
+
+   if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
+   {
+      usbi_dbg("transfer %p, transfer cancelled", transfer);
+      result = usbi_handle_transfer_cancellation(itransfer);
+   }
+   else
+   {
+      usbi_dbg("transfer %p, transfer completed", transfer);
+      result = usbi_handle_transfer_completion(itransfer, tpriv->status);
+   }
 
    return(result);
 }
