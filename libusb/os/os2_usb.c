@@ -182,7 +182,7 @@ void *ControlHandlingThread(void *arg)
        usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
        rc = DosResetEventSem(tp->hEventSem,&postCount);
        usbi_dbg("DosResetEventSem,  rc = %lu",rc);
-       if (tp->toTerminate)
+       if (tp->toTerminate || !transfer->dev_handle)
        {
            break;
        }
@@ -226,7 +226,7 @@ void *BulkIrqHandlingThread(void *arg)
        usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
        rc = DosResetEventSem(tp->hEventSem,&postCount);
        usbi_dbg("DosResetEventSem,  rc = %lu",rc);
-       if (tp->toTerminate)
+       if (tp->toTerminate || !transfer->dev_handle)
        {
            break;
        }
@@ -290,7 +290,7 @@ void *IsoStreamHandlingThread(void *arg)
        usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
        rc = DosResetEventSem(tp->hEventSem,&postCount);
        usbi_dbg("DosResetEventSem,  rc = %lu",rc);
-       if (tp->toTerminate)
+       if (tp->toTerminate || !transfer->dev_handle)
        {
            break;
        }
@@ -541,6 +541,11 @@ os2_close(struct libusb_device_handle *handle)
       {
           if (tp->itransfer)
           {
+             /*
+              * cannot rely on ANY transfer structure to still being accessible
+              * at this point ! However, computing the pointer "transfer" from
+              * the pointer "itransfer" is ok for as long as memory is not accessed
+              */
              transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(tp->itransfer);
              usbi_dbg("transfer: %p, in progress: %lu",transfer,tp->inProgress);
 
