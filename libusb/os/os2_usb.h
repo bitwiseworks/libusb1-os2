@@ -32,6 +32,8 @@
 #define MAX_TRANSFER_SIZE           8192  /* this is the value that the ArcaOS version of USBCALLS supports as the maximum */
 #define MAX_ISO_TRANSFER_SIZE       61440
 
+#define MAX_TRANSFERS               128
+
 #pragma pack(1)
 typedef struct _GETDEVINFODATA_
 {
@@ -54,7 +56,6 @@ typedef struct _USBCALLS_MY_RSP_
 struct device_priv
 {
    unsigned int            numOpens;                        /* tracks the number of nested calls to os2_open */
-   unsigned int            numPending;                      /* tracks how many transfers are currently submitted but not yet completed */
    unsigned int            numIsoBuffsInUse;                /* only used for isochronous devices */
    unsigned long           fd;                              /* device file descriptor */
    struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */
@@ -63,13 +64,14 @@ struct device_priv
    unsigned char           cdesc[4096];                     /* active config descriptor */
 };
 
-struct entry
+struct transfer_mgmt
 {
+    HEV hEventSem;
+    pthread_t thrd;
     struct usbi_transfer *itransfer;
-    STAILQ_ENTRY(entry) entries;
+    BOOL toTerminate;
+    BOOL inProgress;
 };
-STAILQ_HEAD(stailhead, entry);
-
 
 struct transfer_priv
 {
@@ -79,8 +81,6 @@ struct transfer_priv
    unsigned int        ToProcess;                  /* bytes for control/bulk/irq, packets for iso */
    unsigned int        Processed;                  /* bytes for control/bulk/irq, packets for iso */
    enum libusb_transfer_status status;
-   HEV                 hEventSem;                  /* used to wait for termination event, used for all transfers */
-   struct entry        element;                    /* structure to allow linking into the queue of transfers to manage */
 };
 #pragma pack()
 
