@@ -512,6 +512,7 @@ os2_close(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
+   struct libusb_transfer *transfer = NULL;
 
    APIRET    rc = NO_ERROR;
    unsigned int numOpens = 0;
@@ -540,6 +541,9 @@ os2_close(struct libusb_device_handle *handle)
       {
           if (tp->itransfer)
           {
+             transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(tp->itransfer);
+             usbi_dbg("transfer: %p, in progress: %lu",transfer,tp->inProgress);
+
              if (tp->inProgress)
              {
                  usbi_dbg("unref device once");
