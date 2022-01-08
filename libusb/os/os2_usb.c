@@ -191,7 +191,7 @@ void *ControlHandlingThread(void *arg)
        {
            usbi_dbg("ctrl: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-           if ((LIBUSB_TRANSFER_CANCELLED == tpriv->status) && tpriv->Response.usStatus)
+           if (LIBUSB_TRANSFER_CANCELLED == tpriv->status)
            {
                itransfer->transferred = 0;
            }
@@ -235,7 +235,7 @@ void *BulkIrqHandlingThread(void *arg)
        {
            usbi_dbg("bulk/irq: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-           if ((LIBUSB_TRANSFER_CANCELLED == tpriv->status) && tpriv->Response.usStatus)
+           if (LIBUSB_TRANSFER_CANCELLED == tpriv->status)
            {
                itransfer->transferred = tpriv->Processed;
                usbi_signal_transfer_completion(itransfer);
@@ -299,7 +299,6 @@ void *IsoStreamHandlingThread(void *arg)
        {
           usbi_dbg("iso: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-          //if ((LIBUSB_TRANSFER_CANCELLED == tpriv->status) && tpriv->Response.usStatus)
           if (LIBUSB_TRANSFER_CANCELLED == tpriv->status)
           {
              usbi_dbg("transfer was cancelled !");
@@ -928,16 +927,6 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 
    usbi_dbg(" ");
 
-   /*
-    * transfers are freed behind libusb back. And this is one place where we have to catch
-    * this error to prevent "usbi_handle_transfer_cancellation/usbi_handle_transfer_completion"
-    * from trapping
-    */
-   if (list_empty(&itransfer->list))
-   {
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
-
    DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
    for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
    {
@@ -948,6 +937,16 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
        }
    }
    DosReleaseMutexSem(ghTransferMgmtMutex);
+
+   /*
+    * transfers are freed behind libusb back. And this is one place where we have to catch
+    * this error to prevent "usbi_handle_transfer_cancellation/usbi_handle_transfer_completion"
+    * from trapping
+    */
+   if (list_empty(&itransfer->list))
+   {
+       return (LIBUSB_ERROR_INVALID_PARAM);
+   }
 
    if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
    {
