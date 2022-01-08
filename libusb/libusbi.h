@@ -192,7 +192,7 @@ static inline void list_del(struct list_head *entry)
 {
 	entry->next->prev = entry->prev;
 	entry->prev->next = entry->next;
-	entry->next = entry->prev = NULL;
+	entry->next = entry->prev = entry;
 }
 
 static inline void list_cut(struct list_head *list, struct list_head *head)
