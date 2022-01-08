@@ -30,17 +30,25 @@
 #endif
 #include <unistd.h>
 
+#ifdef HAVE_EVENTFD
+#define EVENT_READ_FD(e)	((e)->eventfd)
+#define EVENT_WRITE_FD(e)	((e)->eventfd)
 #ifdef __OS2__
 #include <sys/socket.h>
 # define pipe(A) socketpair(AF_UNIX, SOCK_STREAM, 0, A)
 #endif
 
-#ifdef HAVE_EVENTFD
-#define EVENT_READ_FD(e)	((e)->eventfd)
-#define EVENT_WRITE_FD(e)	((e)->eventfd)
 #else
 #define EVENT_READ_FD(e)	((e)->pipefd[0])
 #define EVENT_WRITE_FD(e)	((e)->pipefd[1])
+
+#ifdef __OS2__
+#include <sys/socket.h>
+# define pipe(A) socketpair(AF_UNIX, SOCK_STREAM, 0, A); \
+shutdown((A)[0],SHUT_WR);                      \
+shutdown((A)[1],SHUT_RD)
+#endif
+
 #endif
 
 #ifdef HAVE_NFDS_T
