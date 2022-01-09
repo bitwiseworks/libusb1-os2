@@ -924,7 +924,8 @@ static int os2_handle_transfer_completion(struct usbi_transfer *itransfer)
    /*
     * transfers are freed behind libusb back. And this is one place where we have to catch
     * this error to prevent "usbi_handle_transfer_cancellation/usbi_handle_transfer_completion"
-    * from trapping
+    * from trapping. In the specific error case, an attempt was made to remove this transfer element
+    * multiple times. Therefore we check for "empty list".
     */
    if (list_empty(&itransfer->list))
    {
