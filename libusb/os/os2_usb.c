@@ -43,6 +43,7 @@ static void *IsoStreamHandlingThread(void *arg);
  * Backend functions
  */
 static int os2_get_device_list(struct libusb_context *,struct discovered_devs **);
+static int os2_wrap_sys_device(struct libusb_context *ctx,struct libusb_device_handle *dev_handle, intptr_t sys_dev);
 static int os2_open(struct libusb_device_handle *);
 static void os2_close(struct libusb_device_handle *);
 static int os2_get_active_config_descriptor(struct libusb_device *,void *, size_t);
@@ -85,7 +86,7 @@ const struct usbi_os_backend usbi_backend = {
    NULL,          /* set_option() TODO TODO TODO */
    os2_get_device_list,
    NULL,          /* hotplug_poll() */
-   NULL,          /* wrap_sys_device() TODO TODO TODO */
+   os2_wrap_sys_device,
    os2_open,
    os2_close,
 
@@ -447,6 +448,14 @@ static int os2_get_device_list(struct libusb_context * ctx, struct discovered_de
       *discdevs = ddd;
    }
    return(LIBUSB_SUCCESS);
+}
+
+static int os2_wrap_sys_device(struct libusb_context *ctx,struct libusb_device_handle *dev_handle, intptr_t sys_dev)
+{
+    UNUSED(ctx);
+    UNUSED(dev_handle);
+    UNUSED(sys_dev);
+    return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
 static int os2_open(struct libusb_device_handle *handle)
