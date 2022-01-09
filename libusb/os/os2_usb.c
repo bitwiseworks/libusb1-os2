@@ -173,7 +173,13 @@ static void *GenericHandlingThread(void *arg)
        usbi_dbg("DosWaitEventSem,  rc = %lu",rc);
        rc = DosResetEventSem(tp->hEventSem,&postCount);
        usbi_dbg("DosResetEventSem,  rc = %lu",rc);
-       if (tp->toTerminate || !transfer->dev_handle)
+
+       /*
+        * do NOT access access itransfer/transfer at this point
+        * as it might no longer be accessible if "toTerminate" has
+        * been set !
+        */
+       if (tp->toTerminate)
        {
            break;
        }
