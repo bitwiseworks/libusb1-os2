@@ -180,6 +180,13 @@ static void *GenericHandlingThread(void *arg)
 
        if (NO_ERROR == rc)
        {
+         /*
+          * at this point, we always need to check for transfer type:
+          * even though the itransfer/transfer pointer is the same
+          * the transfer type might change from one invocation to
+          * the next because the itransfer/transfer pointer might
+          * point to a different transfer type
+          */
           switch(transfer->type)
           {
               case LIBUSB_TRANSFER_TYPE_CONTROL:
