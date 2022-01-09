@@ -1137,6 +1137,7 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
 
    if (t >= MAX_TRANSFERS)
    {
+       usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
@@ -1144,6 +1145,7 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
    tpriv->ToProcess                = setup->wLength;
    tpriv->Response.usStatus        = 0;
    tpriv->Response.usDataLength    = tpriv->ToProcess;
+   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED; /* preset with a safe value, different from LIBUSB_TRANSFER_CANCELLED */
 
    rc = UsbStartCtrlTransfer(   dpriv->fd, 0, 0, setup->bmRequestType,
                                 setup->bRequest,setup->wValue,setup->wIndex,
@@ -1224,6 +1226,7 @@ static int _async_irq_transfer(struct usbi_transfer *itransfer)
 
    if (t >= MAX_TRANSFERS)
    {
+       usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
@@ -1231,6 +1234,7 @@ static int _async_irq_transfer(struct usbi_transfer *itransfer)
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
    tpriv->Response.usStatus        = 0;
    tpriv->Response.usDataLength    = (USHORT)tpriv->ToProcess;
+   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED; /* preset with a safe value, different from LIBUSB_TRANSFER_CANCELLED */
 
    rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tp->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
    usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
@@ -1310,6 +1314,7 @@ static int _async_bulk_transfer(struct usbi_transfer *itransfer)
 
    if (t >= MAX_TRANSFERS)
    {
+       usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
@@ -1317,6 +1322,7 @@ static int _async_bulk_transfer(struct usbi_transfer *itransfer)
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
    tpriv->Response.usStatus        = 0;
    tpriv->Response.usDataLength    = (USHORT)tpriv->ToProcess;
+   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED; /* preset with a safe value, different from LIBUSB_TRANSFER_CANCELLED */
 
    rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tp->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
    usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
@@ -1444,6 +1450,7 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
 
    if (t >= MAX_TRANSFERS)
    {
+       usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
@@ -1452,6 +1459,7 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
    tpriv->Response.usStatus        = 0;
    tpriv->Response.usDataLength    = 0;
    memset(tpriv->Response.usFrameSize,0,sizeof(tpriv->Response.usFrameSize));
+   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED; /* preset with a safe value, different from LIBUSB_TRANSFER_CANCELLED */
 
    packet_len = transfer->iso_packet_desc[0].length;
 
