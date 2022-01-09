@@ -35,55 +35,46 @@ extern void _CRT_term(void);
 extern void __ctordtorInit(void);
 extern void __ctordtorTerm(void);
 
-void *ControlHandlingThread(void *arg);
-void *BulkIrqHandlingThread(void *arg);
-void *IsoStreamHandlingThread(void *arg);
+static void *ControlHandlingThread(void *arg);
+static void *BulkIrqHandlingThread(void *arg);
+static void *IsoStreamHandlingThread(void *arg);
 
 /*
  * Backend functions
  */
-int os2_get_device_list(struct libusb_context *,
-    struct discovered_devs **);
-int os2_open(struct libusb_device_handle *);
-void os2_close(struct libusb_device_handle *);
-
-int os2_get_active_config_descriptor(struct libusb_device *,
-    void *, size_t);
-int os2_get_config_descriptor(struct libusb_device *, uint8_t,
-    void *, size_t);
-
-int os2_get_configuration(struct libusb_device_handle *, uint8_t *);
-int os2_set_configuration(struct libusb_device_handle *, int);
-
-int os2_claim_interface(struct libusb_device_handle *, uint8_t);
-int os2_release_interface(struct libusb_device_handle *, uint8_t);
-
-int os2_set_interface_altsetting(struct libusb_device_handle *, uint8_t, uint8_t);
-int os2_clear_halt(struct libusb_device_handle *, unsigned char);
-int os2_reset_device(struct libusb_device_handle *);
-void os2_destroy_device(struct libusb_device *);
-
-int os2_submit_transfer(struct usbi_transfer *);
-int os2_cancel_transfer(struct usbi_transfer *);
-void os2_clear_transfer_priv(struct usbi_transfer *);
-
-int os2_handle_transfer_completion(struct usbi_transfer *);
-int os2_kernel_driver_active(struct libusb_device_handle *dev_handle, uint8_t iface);
-int os2_attach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface);
-int os2_detach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface);
+static int os2_get_device_list(struct libusb_context *,struct discovered_devs **);
+static int os2_open(struct libusb_device_handle *);
+static void os2_close(struct libusb_device_handle *);
+static int os2_get_active_config_descriptor(struct libusb_device *,void *, size_t);
+static int os2_get_config_descriptor(struct libusb_device *, uint8_t,void *, size_t);
+static int os2_get_configuration(struct libusb_device_handle *, uint8_t *);
+static int os2_set_configuration(struct libusb_device_handle *, int);
+static int os2_claim_interface(struct libusb_device_handle *, uint8_t);
+static int os2_release_interface(struct libusb_device_handle *, uint8_t);
+static int os2_set_interface_altsetting(struct libusb_device_handle *, uint8_t, uint8_t);
+static int os2_clear_halt(struct libusb_device_handle *, unsigned char);
+static int os2_reset_device(struct libusb_device_handle *);
+static void os2_destroy_device(struct libusb_device *);
+static int os2_submit_transfer(struct usbi_transfer *);
+static int os2_cancel_transfer(struct usbi_transfer *);
+static void os2_clear_transfer_priv(struct usbi_transfer *);
+static int os2_handle_transfer_completion(struct usbi_transfer *);
+static int os2_kernel_driver_active(struct libusb_device_handle *dev_handle, uint8_t iface);
+static int os2_attach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface);
+static int os2_detach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface);
 
 /*
  * Private functions
  */
-int _is_streaming_interface(struct libusb_device *dev,uint8_t iface);
-void _call_iso_close(struct libusb_device *dev);
-int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint);
-uint8_t _endpoint_for_alternate_setting(struct libusb_device *dev,uint8_t iface, uint8_t altsetting, uint16_t *ppacket_len);
-int _apiret_to_libusb(ULONG);
-int _async_control_transfer(struct usbi_transfer *);
-int _async_irq_transfer(struct usbi_transfer *);
-int _async_bulk_transfer(struct usbi_transfer *);
-int _async_iso_transfer(struct usbi_transfer *);
+static int _is_streaming_interface(struct libusb_device *dev,uint8_t iface);
+static void _call_iso_close(struct libusb_device *dev);
+static int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint);
+static uint8_t _endpoint_for_alternate_setting(struct libusb_device *dev,uint8_t iface, uint8_t altsetting, uint16_t *ppacket_len);
+static int _apiret_to_libusb(ULONG);
+static int _async_control_transfer(struct usbi_transfer *);
+static int _async_irq_transfer(struct usbi_transfer *);
+static int _async_bulk_transfer(struct usbi_transfer *);
+static int _async_iso_transfer(struct usbi_transfer *);
 
 
 const struct usbi_os_backend usbi_backend = {
@@ -137,9 +128,8 @@ const struct usbi_os_backend usbi_backend = {
    sizeof(struct transfer_priv)  /* transfer private data */
 };
 
-HMTX ghTransferMgmtMutex = NULLHANDLE;
-struct transfer_mgmt gTransferArray[MAX_TRANSFERS] = {0};
-
+static HMTX ghTransferMgmtMutex = NULLHANDLE;
+static struct transfer_mgmt gTransferArray[MAX_TRANSFERS] = {0};
 
 unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
 {
@@ -167,7 +157,7 @@ unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
     return 1;
 }
 
-void *ControlHandlingThread(void *arg)
+static void *ControlHandlingThread(void *arg)
 {
     struct transfer_mgmt *tp = (struct transfer_mgmt *)arg;
     struct usbi_transfer *itransfer = tp->itransfer;
@@ -209,7 +199,7 @@ void *ControlHandlingThread(void *arg)
     return NULL;
 }
 
-void *BulkIrqHandlingThread(void *arg)
+static void *BulkIrqHandlingThread(void *arg)
 {
     struct transfer_mgmt *tp = (struct transfer_mgmt *)arg;
     struct usbi_transfer *itransfer = tp->itransfer;
@@ -272,7 +262,7 @@ void *BulkIrqHandlingThread(void *arg)
     return NULL;
 }
 
-void *IsoStreamHandlingThread(void *arg)
+static void *IsoStreamHandlingThread(void *arg)
 {
     struct transfer_mgmt *tp = (struct transfer_mgmt *)arg;
     struct usbi_transfer *itransfer = tp->itransfer;
@@ -337,9 +327,7 @@ void *IsoStreamHandlingThread(void *arg)
 
 
 
-int
-os2_get_device_list(struct libusb_context * ctx,
-   struct discovered_devs **discdevs)
+static int os2_get_device_list(struct libusb_context * ctx, struct discovered_devs **discdevs)
 {
    APIRET    rc;
    ULONG     cntDev;
@@ -461,8 +449,7 @@ os2_get_device_list(struct libusb_context * ctx,
    return(LIBUSB_SUCCESS);
 }
 
-int
-os2_open(struct libusb_device_handle *handle)
+static int os2_open(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
@@ -507,8 +494,7 @@ os2_open(struct libusb_device_handle *handle)
    return(LIBUSB_SUCCESS);
 }
 
-void
-os2_close(struct libusb_device_handle *handle)
+static void os2_close(struct libusb_device_handle *handle)
 {
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
@@ -588,9 +574,7 @@ os2_close(struct libusb_device_handle *handle)
    /* endif */
 }
 
-int
-os2_get_active_config_descriptor(struct libusb_device *dev,
-    void *buf, size_t len)
+static int os2_get_active_config_descriptor(struct libusb_device *dev,void *buf, size_t len)
 {
    struct device_priv *dpriv            = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_config_descriptor *ucd = (struct libusb_config_descriptor*) (dpriv->cdesc);
@@ -604,9 +588,7 @@ os2_get_active_config_descriptor(struct libusb_device *dev,
    return(len);
 }
 
-int
-os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
-    void *buf, size_t len)
+static int os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,void *buf, size_t len)
 {
    UNUSED(idx);
    /* just return the active config descriptor, it's a bad idea to arbitrarily switch configuration anyway */
@@ -618,8 +600,7 @@ os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,
  * fortunately, USBD.SYS will internally save the selected configuration which we query here via
  * UsbQueryDeviceInfo
  */
-int
-os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
+static int os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
 {
    struct libusb_device *dev = handle->dev;
    ULONG cntDev,ctr,len;
@@ -651,8 +632,7 @@ os2_get_configuration(struct libusb_device_handle *handle, uint8_t *config)
    return(LIBUSB_ERROR_NO_DEVICE);
 }
 
-int
-os2_set_configuration(struct libusb_device_handle *handle, int config)
+static int os2_set_configuration(struct libusb_device_handle *handle, int config)
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
    APIRET    rc = LIBUSB_SUCCESS;
@@ -669,8 +649,7 @@ os2_set_configuration(struct libusb_device_handle *handle, int config)
    return(LIBUSB_SUCCESS);
 }
 
-int
-os2_claim_interface(struct libusb_device_handle *handle, uint8_t iface)
+static int os2_claim_interface(struct libusb_device_handle *handle, uint8_t iface)
 {
    UNUSED(handle);
    UNUSED(iface);
@@ -679,8 +658,7 @@ os2_claim_interface(struct libusb_device_handle *handle, uint8_t iface)
    return(LIBUSB_SUCCESS);
 }
 
-int
-os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
+static int os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
 {
 /* USBRESM$ appears to handle this as part of opening the device */
    usbi_dbg(" ");
@@ -703,9 +681,7 @@ os2_release_interface(struct libusb_device_handle *handle, uint8_t iface)
    return(errorcode);
 }
 
-int
-os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
-    uint8_t altsetting)
+static int os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,uint8_t altsetting)
 {
    struct libusb_device *dev = handle->dev;
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
@@ -754,8 +730,7 @@ os2_set_interface_altsetting(struct libusb_device_handle *handle, uint8_t iface,
    return (errorcode);
 }
 
-int
-os2_clear_halt(struct libusb_device_handle *handle, unsigned char endpoint)
+static int os2_clear_halt(struct libusb_device_handle *handle, unsigned char endpoint)
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(handle->dev);
    APIRET rc = LIBUSB_SUCCESS;
@@ -765,8 +740,7 @@ os2_clear_halt(struct libusb_device_handle *handle, unsigned char endpoint)
    return(_apiret_to_libusb(rc));
 }
 
-int
-os2_reset_device(struct libusb_device_handle *handle)
+static int os2_reset_device(struct libusb_device_handle *handle)
 {
 /* TO DO */
    UNUSED(handle);
@@ -775,8 +749,7 @@ os2_reset_device(struct libusb_device_handle *handle)
    return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
-void
-os2_destroy_device(struct libusb_device *dev)
+static void os2_destroy_device(struct libusb_device *dev)
 {
    usbi_dbg(" ");
 
@@ -790,8 +763,7 @@ os2_destroy_device(struct libusb_device *dev)
    dpriv->curr_config_descriptor = NULL;
 }
 
-int
-os2_submit_transfer(struct usbi_transfer *itransfer)
+static int os2_submit_transfer(struct usbi_transfer *itransfer)
 {
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    int err = LIBUSB_SUCCESS;
@@ -831,8 +803,7 @@ os2_submit_transfer(struct usbi_transfer *itransfer)
    return(err);
 }
 
-int
-os2_cancel_transfer(struct usbi_transfer *itransfer)
+static int os2_cancel_transfer(struct usbi_transfer *itransfer)
 {
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
@@ -888,8 +859,7 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    return(_apiret_to_libusb(rc));
 }
 
-void
-os2_clear_transfer_priv(struct usbi_transfer *itransfer)
+static void os2_clear_transfer_priv(struct usbi_transfer *itransfer)
 {
    APIRET rc = NO_ERROR;
    unsigned int t = 0;
@@ -916,8 +886,7 @@ os2_clear_transfer_priv(struct usbi_transfer *itransfer)
    return;
 }
 
-int
-os2_handle_transfer_completion(struct usbi_transfer *itransfer)
+static int os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 {
    struct transfer_priv *tpriv = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
@@ -968,7 +937,7 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 }
 
 
-int _is_streaming_interface(struct libusb_device *dev, uint8_t iface)
+static int _is_streaming_interface(struct libusb_device *dev, uint8_t iface)
 {
    struct device_priv *dpriv               = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_config_descriptor *config    = dpriv->curr_config_descriptor;
@@ -990,7 +959,7 @@ leave:
    return(foundStreamingInterface);
 }
 
-void _call_iso_close(struct libusb_device *dev)
+static void _call_iso_close(struct libusb_device *dev)
 {
    struct device_priv *dpriv               = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_config_descriptor *config    = dpriv->curr_config_descriptor;
@@ -1018,7 +987,7 @@ void _call_iso_close(struct libusb_device *dev)
 }
 
 
-int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint)
+static int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint)
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_config_descriptor *config    = dpriv->curr_config_descriptor;
@@ -1039,7 +1008,7 @@ leave:
    return(interface);
 }
 
-uint8_t _endpoint_for_alternate_setting(struct libusb_device *dev,uint8_t iface, uint8_t altsetting, uint16_t *ppacket_len)
+static uint8_t _endpoint_for_alternate_setting(struct libusb_device *dev,uint8_t iface, uint8_t altsetting, uint16_t *ppacket_len)
 {
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    struct libusb_config_descriptor *config    = dpriv->curr_config_descriptor;
@@ -1067,8 +1036,7 @@ leave:
 }
 
 
-int
-_apiret_to_libusb(ULONG err)
+static int _apiret_to_libusb(ULONG err)
 {
    usbi_dbg("error: %lu", err);
 
@@ -1094,8 +1062,7 @@ _apiret_to_libusb(ULONG err)
    return(LIBUSB_ERROR_OTHER);
 }
 
-int
-_async_control_transfer(struct usbi_transfer *itransfer)
+static int _async_control_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
 
@@ -1183,8 +1150,7 @@ _async_control_transfer(struct usbi_transfer *itransfer)
    return(_apiret_to_libusb(rc));
 }
 
-int
-_async_irq_transfer(struct usbi_transfer *itransfer)
+static int _async_irq_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
 
@@ -1270,8 +1236,7 @@ _async_irq_transfer(struct usbi_transfer *itransfer)
 }
 
 
-int
-_async_bulk_transfer(struct usbi_transfer *itransfer)
+static int _async_bulk_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
 
@@ -1357,8 +1322,7 @@ _async_bulk_transfer(struct usbi_transfer *itransfer)
 }
 
 
-int
-_async_iso_transfer(struct usbi_transfer *itransfer)
+static int _async_iso_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
 
@@ -1547,21 +1511,21 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
 
 
 /* The 3 functions below are unlikely to ever get supported on OS/2 */
-int os2_kernel_driver_active(struct libusb_device_handle *dev_handle, uint8_t iface)
+static int os2_kernel_driver_active(struct libusb_device_handle *dev_handle, uint8_t iface)
 {
    UNUSED(dev_handle);
    UNUSED(iface);
    return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
-int os2_attach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface)
+static int os2_attach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface)
 {
    UNUSED(dev_handle);
    UNUSED(iface);
    return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
-int os2_detach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface)
+static int os2_detach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface)
 {
    UNUSED(dev_handle);
    UNUSED(iface);
