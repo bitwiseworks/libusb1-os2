@@ -29,12 +29,12 @@
 #include "libusbi.h"
 #include "os2_usb.h"
 
-
 unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag);
 extern int  _CRT_init(void);
 extern void _CRT_term(void);
 extern void __ctordtorInit(void);
 extern void __ctordtorTerm(void);
+
 void *ControlHandlingThread(void *arg);
 void *BulkIrqHandlingThread(void *arg);
 void *IsoStreamHandlingThread(void *arg);
@@ -859,8 +859,6 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
       return(LIBUSB_ERROR_INVALID_PARAM);
    } /* endif */
 
-   tpriv->status = LIBUSB_TRANSFER_CANCELLED;
-
    DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
    for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
    {
@@ -875,6 +873,8 @@ os2_cancel_transfer(struct usbi_transfer *itransfer)
    {
        return (LIBUSB_ERROR_OVERFLOW);
    }
+
+   tpriv->status = LIBUSB_TRANSFER_CANCELLED;
 
    /*
     * we call UsbCancelTransfer for each transfer to be cancelled, including isochronous transfers
@@ -937,6 +937,11 @@ os2_handle_transfer_completion(struct usbi_transfer *itransfer)
        }
    }
    DosReleaseMutexSem(ghTransferMgmtMutex);
+
+   if (t >= MAX_TRANSFERS)
+   {
+       return (LIBUSB_ERROR_OVERFLOW);
+   }
 
    /*
     * transfers are freed behind libusb back. And this is one place where we have to catch
@@ -1116,8 +1121,6 @@ _async_control_transfer(struct usbi_transfer *itransfer)
    {
        if (tp->itransfer == itransfer)
        {
-           tp->toTerminate = FALSE;
-           tp->inProgress  = FALSE;
            break;
        }
    }
@@ -1147,8 +1150,6 @@ _async_control_transfer(struct usbi_transfer *itransfer)
                    break;
                }
 
-               usbi_dbg("do it !");
-
                tp->toTerminate = FALSE;
                tp->inProgress  = FALSE;
                break;
@@ -1162,7 +1163,6 @@ _async_control_transfer(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
-   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED;
    tpriv->Processed                = 0;
    tpriv->ToProcess                = setup->wLength;
    tpriv->Response.usStatus        = 0;
@@ -1209,8 +1209,6 @@ _async_irq_transfer(struct usbi_transfer *itransfer)
    {
        if (tp->itransfer == itransfer)
        {
-           tp->toTerminate = FALSE;
-           tp->inProgress  = FALSE;
            break;
        }
    }
@@ -1253,7 +1251,6 @@ _async_irq_transfer(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
-   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED;
    tpriv->Processed                = 0;
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
    tpriv->Response.usStatus        = 0;
@@ -1299,8 +1296,6 @@ _async_bulk_transfer(struct usbi_transfer *itransfer)
    {
        if (tp->itransfer == itransfer)
        {
-           tp->toTerminate = FALSE;
-           tp->inProgress  = FALSE;
            break;
        }
    }
@@ -1343,7 +1338,6 @@ _async_bulk_transfer(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
-   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED;
    tpriv->Processed                = 0;
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
    tpriv->Response.usStatus        = 0;
@@ -1437,8 +1431,6 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
    {
        if (tp->itransfer == itransfer)
        {
-           tp->toTerminate = FALSE;
-           tp->inProgress  = FALSE;
            break;
        }
    }
@@ -1481,7 +1473,6 @@ _async_iso_transfer(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
-   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED;
    tpriv->Processed                = 0;
    tpriv->ToProcess                = 0;
    tpriv->Response.usStatus        = 0;
