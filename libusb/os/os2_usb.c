@@ -74,8 +74,7 @@ static int _interface_for_endpoint(struct libusb_device *dev,uint8_t endpoint);
 static uint8_t _endpoint_for_alternate_setting(struct libusb_device *dev,uint8_t iface, uint8_t altsetting, uint16_t *ppacket_len);
 static int _apiret_to_libusb(ULONG);
 static int _async_control_transfer(struct usbi_transfer *);
-static int _async_irq_transfer(struct usbi_transfer *);
-static int _async_bulk_transfer(struct usbi_transfer *);
+static int _async_bulkirq_transfer(struct usbi_transfer *);
 static int _async_iso_transfer(struct usbi_transfer *);
 
 
@@ -222,8 +221,9 @@ static void ControlHandlingRoutine(struct transfer_mgmt *tp)
 
     usbi_dbg("ctrl: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-    if (LIBUSB_TRANSFER_CANCELLED == tpriv->status)
+    if (TRUE == tp->toCancel)
     {
+        tpriv->status = LIBUSB_TRANSFER_CANCELLED;
         itransfer->transferred = 0;
     }
     else
@@ -250,8 +250,9 @@ static void BulkIrqHandlingRoutine(struct transfer_mgmt *tp)
 
     usbi_dbg("bulk/irq: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-    if (LIBUSB_TRANSFER_CANCELLED == tpriv->status)
+    if (TRUE == tp->toCancel)
     {
+        tpriv->status = LIBUSB_TRANSFER_CANCELLED;
         itransfer->transferred = tpriv->Processed;
         usbi_signal_transfer_completion(itransfer);
     }
@@ -272,6 +273,15 @@ static void BulkIrqHandlingRoutine(struct transfer_mgmt *tp)
            usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
            usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
            usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
+           if (NO_ERROR != rc)
+           {
+              tpriv->status = LIBUSB_TRANSFER_ERROR;
+              itransfer->transferred = tpriv->Processed;
+              usbi_dbg("transferred %u of %u bytes (unfinished transfer)",itransfer->transferred,transfer->length);
+
+              usbi_signal_transfer_completion(itransfer);
+           }
+           /* if NO_ERROR, wait for next termination of transfer and event semaphore notification */
        }
        else
        {
@@ -296,10 +306,11 @@ static void IsoStreamHandlingRoutine(struct transfer_mgmt *tp)
 
     usbi_dbg("iso: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
 
-    if (LIBUSB_TRANSFER_CANCELLED == tpriv->status)
+    if (TRUE == tp->toCancel)
     {
        usbi_dbg("transfer was cancelled !");
 
+       tpriv->status = LIBUSB_TRANSFER_CANCELLED;
        itransfer->transferred = 0;
        for(j=0;j<(unsigned int)transfer->num_iso_packets;j++) {
            transfer->iso_packet_desc[j].actual_length = 0;
@@ -570,6 +581,7 @@ static void os2_close(struct libusb_device_handle *handle)
              rc = DosCloseEventSem(tp->hEventSem);
              tp->hEventSem = NULLHANDLE;
              tp->itransfer = NULL;
+             tp->toCancel  = FALSE;
              tp->toTerminate = FALSE;
              tp->inProgress = FALSE;
           }
@@ -792,20 +804,13 @@ static int os2_submit_transfer(struct usbi_transfer *itransfer)
       err = _async_iso_transfer(itransfer);
       break;
    case LIBUSB_TRANSFER_TYPE_BULK:
-      if (IS_XFEROUT(transfer) &&
-          transfer->flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET) {
-         err = LIBUSB_ERROR_NOT_SUPPORTED;
-         break;
-      }
-      err = _async_bulk_transfer(itransfer);
-      break;
    case LIBUSB_TRANSFER_TYPE_INTERRUPT:
       if (IS_XFEROUT(transfer) &&
           transfer->flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET) {
          err = LIBUSB_ERROR_NOT_SUPPORTED;
          break;
       }
-      err = _async_irq_transfer(itransfer);
+      err = _async_bulkirq_transfer(itransfer);
       break;
    case LIBUSB_TRANSFER_TYPE_BULK_STREAM:
       err = LIBUSB_ERROR_NOT_SUPPORTED;
@@ -819,7 +824,6 @@ static int os2_submit_transfer(struct usbi_transfer *itransfer)
 
 static int os2_cancel_transfer(struct usbi_transfer *itransfer)
 {
-   struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    struct libusb_device *dev        = NULL;
    struct device_priv *dpriv        = NULL;
@@ -859,7 +863,7 @@ static int os2_cancel_transfer(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_OVERFLOW);
    }
 
-   tpriv->status = LIBUSB_TRANSFER_CANCELLED;
+   tp->toCancel = TRUE;
 
    /*
     * we call UsbCancelTransfer for each transfer to be cancelled, including isochronous transfers
@@ -937,8 +941,9 @@ static int os2_handle_transfer_completion(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_INVALID_PARAM);
    }
 
-   if (tpriv->status == LIBUSB_TRANSFER_CANCELLED)
+   if (TRUE == tp->toCancel)
    {
+      tp->toCancel = FALSE;
       usbi_dbg("transfer %p, transfer cancelled", transfer);
       result = usbi_handle_transfer_cancellation(itransfer);
    }
@@ -1120,11 +1125,9 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
                   t = MAX_TRANSFERS;
                   break;
                }
-               tp->itransfer = itransfer;
 
                if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
                {
-                   tp->itransfer = NULL;
                    tp->thrd = NULL;
                    DosCloseEventSem(tp->hEventSem);
                    tp->hEventSem = NULLHANDLE;
@@ -1132,6 +1135,8 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
                    break;
                }
 
+               tp->itransfer   = itransfer;
+               tp->toCancel    = FALSE;
                tp->toTerminate = FALSE;
                tp->inProgress  = FALSE;
                break;
@@ -1167,7 +1172,8 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
    return(_apiret_to_libusb(rc));
 }
 
-static int _async_irq_transfer(struct usbi_transfer *itransfer)
+
+static int _async_bulkirq_transfer(struct usbi_transfer *itransfer)
 {
    usbi_dbg(" ");
 
@@ -1209,11 +1215,9 @@ static int _async_irq_transfer(struct usbi_transfer *itransfer)
                   t = MAX_TRANSFERS;
                   break;
                }
-               tp->itransfer = itransfer;
 
                if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
                {
-                   tp->itransfer = NULL;
                    tp->thrd = NULL;
                    DosCloseEventSem(tp->hEventSem);
                    tp->hEventSem = NULLHANDLE;
@@ -1221,94 +1225,8 @@ static int _async_irq_transfer(struct usbi_transfer *itransfer)
                    break;
                }
 
-               tp->toTerminate = FALSE;
-               tp->inProgress  = FALSE;
-               break;
-           }
-       }
-   }
-   DosReleaseMutexSem(ghTransferMgmtMutex);
-
-   if (t >= MAX_TRANSFERS)
-   {
-       usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
-       return (LIBUSB_ERROR_OVERFLOW);
-   }
-
-   tpriv->Processed                = 0;
-   tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
-   tpriv->Response.usStatus        = 0;
-   tpriv->Response.usDataLength    = (USHORT)tpriv->ToProcess;
-   tpriv->status                   = LIBUSB_TRANSFER_COMPLETED; /* preset with a safe value, different from LIBUSB_TRANSFER_CANCELLED */
-
-   rc = UsbStartDataTransfer(dpriv->fd,transfer->endpoint,0,(PUCHAR)&tpriv->Response,transfer->buffer,tp->hEventSem,IS_XFERIN(transfer) ? 0 : USB_TRANSFER_FULL_SIZE);
-   usbi_dbg("UsbStartDataTransfer with fd = %#.8lx",dpriv->fd);
-   usbi_dbg("UsbStartDataTransfer with ep = %#02x",transfer->endpoint);
-   usbi_dbg("UsbStartDataTransfer with timeout = %d",transfer->timeout);
-   usbi_dbg("UsbStartDataTransfer rc = %lu",rc);
-
-   if (NO_ERROR == rc)
-   {
-      tp->inProgress           = TRUE;
-   }
-   return(_apiret_to_libusb(rc));
-}
-
-
-static int _async_bulk_transfer(struct usbi_transfer *itransfer)
-{
-   usbi_dbg(" ");
-
-   struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
-   struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct libusb_device *dev        = NULL;
-   struct device_priv *dpriv        = NULL;
-   APIRET rc = NO_ERROR;
-   unsigned t = 0;
-   struct transfer_mgmt *tp = NULL;
-
-   if (!transfer->dev_handle)
-   {
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
-
-   dev = transfer->dev_handle->dev;
-   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
-
-   DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
-   for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
-   {
-       if (tp->itransfer == itransfer)
-       {
-           break;
-       }
-   }
-
-   if (t >= MAX_TRANSFERS)
-   {
-       for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
-       {
-           if (!tp->itransfer)
-           {
-               rc = DosCreateEventSem(NULL,&tp->hEventSem,DC_SEM_SHARED,FALSE);
-               if (NO_ERROR != rc) {
-                  usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
-                  tp->hEventSem = NULLHANDLE;
-                  t = MAX_TRANSFERS;
-                  break;
-               }
-               tp->itransfer = itransfer;
-
-               if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
-               {
-                   tp->itransfer = NULL;
-                   tp->thrd = NULL;
-                   DosCloseEventSem(tp->hEventSem);
-                   tp->hEventSem = NULLHANDLE;
-                   t = MAX_TRANSFERS;
-                   break;
-               }
-
+               tp->itransfer   = itransfer;
+               tp->toCancel    = FALSE;
                tp->toTerminate = FALSE;
                tp->inProgress  = FALSE;
                break;
@@ -1433,11 +1351,9 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
                   t = MAX_TRANSFERS;
                   break;
                }
-               tp->itransfer = itransfer;
 
                if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
                {
-                   tp->itransfer = NULL;
                    tp->thrd = NULL;
                    DosCloseEventSem(tp->hEventSem);
                    tp->hEventSem = NULLHANDLE;
@@ -1445,6 +1361,8 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
                    break;
                }
 
+               tp->itransfer   = itransfer;
+               tp->toCancel    = FALSE;
                tp->toTerminate = FALSE;
                tp->inProgress  = FALSE;
                break;

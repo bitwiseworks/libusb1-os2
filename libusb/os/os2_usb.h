@@ -69,6 +69,7 @@ struct transfer_mgmt
     HEV hEventSem;
     pthread_t thrd;
     struct usbi_transfer *itransfer;
+    BOOL toCancel;
     BOOL toTerminate;
     BOOL inProgress;
 };
