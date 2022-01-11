@@ -76,7 +76,7 @@ static int _apiret_to_libusb(ULONG);
 static int _async_control_transfer(struct usbi_transfer *);
 static int _async_bulkirq_transfer(struct usbi_transfer *);
 static int _async_iso_transfer(struct usbi_transfer *);
-
+static struct transfer_mgmt* _getTransferMgmtEntry(struct usbi_transfer *itransfer);
 
 const struct usbi_os_backend usbi_backend = {
    "Asynchronous OS/2 backend",
@@ -1082,32 +1082,20 @@ static int _apiret_to_libusb(ULONG err)
    return(LIBUSB_ERROR_OTHER);
 }
 
-static int _async_control_transfer(struct usbi_transfer *itransfer)
+static struct transfer_mgmt* _getTransferMgmtEntry(struct usbi_transfer *itransfer)
 {
-   usbi_dbg(" ");
-
-   struct transfer_priv *tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
-   struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct libusb_control_setup *setup = (struct libusb_control_setup *)transfer->buffer;
-   struct libusb_device *dev          = NULL;
-   struct device_priv *dpriv          = NULL;
-   APIRET rc = NO_ERROR;
    unsigned t = 0;
    struct transfer_mgmt *tp = NULL;
-
-   if (!transfer->dev_handle)
-   {
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
-
-   dev = transfer->dev_handle->dev;
-   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
+   APIRET rc = NO_ERROR;
 
    DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
    for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
    {
        if (tp->itransfer == itransfer)
        {
+           tp->toCancel    = FALSE;
+           tp->toTerminate = FALSE;
+           tp->inProgress  = FALSE;
            break;
        }
    }
@@ -1118,8 +1106,15 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
        {
            if (!tp->itransfer)
            {
+               tp->itransfer   = itransfer;
+               tp->toCancel    = FALSE;
+               tp->toTerminate = FALSE;
+               tp->inProgress  = FALSE;
+
                rc = DosCreateEventSem(NULL,&tp->hEventSem,DC_SEM_SHARED,FALSE);
-               if (NO_ERROR != rc) {
+               if (NO_ERROR != rc)
+               {
+                  tp->itransfer = NULL;
                   usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
                   tp->hEventSem = NULLHANDLE;
                   t = MAX_TRANSFERS;
@@ -1128,17 +1123,13 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
 
                if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
                {
+                   tp->itransfer = NULL;
                    tp->thrd = NULL;
                    DosCloseEventSem(tp->hEventSem);
                    tp->hEventSem = NULLHANDLE;
                    t = MAX_TRANSFERS;
                    break;
                }
-
-               tp->itransfer   = itransfer;
-               tp->toCancel    = FALSE;
-               tp->toTerminate = FALSE;
-               tp->inProgress  = FALSE;
                break;
            }
        }
@@ -1146,6 +1137,35 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
    DosReleaseMutexSem(ghTransferMgmtMutex);
 
    if (t >= MAX_TRANSFERS)
+   {
+       tp = NULL;
+   }
+
+   return tp;
+}
+
+static int _async_control_transfer(struct usbi_transfer *itransfer)
+{
+   usbi_dbg(" ");
+
+   struct transfer_priv *tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
+   struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+   struct libusb_control_setup *setup = (struct libusb_control_setup *)transfer->buffer;
+   struct libusb_device *dev          = NULL;
+   struct device_priv *dpriv          = NULL;
+   APIRET rc = NO_ERROR;
+   struct transfer_mgmt *tp = NULL;
+
+   if (!transfer->dev_handle)
+   {
+       return (LIBUSB_ERROR_INVALID_PARAM);
+   }
+
+   dev = transfer->dev_handle->dev;
+   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
+
+   tp = _getTransferMgmtEntry(itransfer);
+   if (!tp)
    {
        usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
@@ -1182,7 +1202,6 @@ static int _async_bulkirq_transfer(struct usbi_transfer *itransfer)
    struct libusb_device *dev        = NULL;
    struct device_priv *dpriv        = NULL;
    APIRET rc = NO_ERROR;
-   unsigned t = 0;
    struct transfer_mgmt *tp = NULL;
 
    if (!transfer->dev_handle)
@@ -1193,49 +1212,8 @@ static int _async_bulkirq_transfer(struct usbi_transfer *itransfer)
    dev = transfer->dev_handle->dev;
    dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
-   DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
-   for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
-   {
-       if (tp->itransfer == itransfer)
-       {
-           break;
-       }
-   }
-
-   if (t >= MAX_TRANSFERS)
-   {
-       for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
-       {
-           if (!tp->itransfer)
-           {
-               rc = DosCreateEventSem(NULL,&tp->hEventSem,DC_SEM_SHARED,FALSE);
-               if (NO_ERROR != rc) {
-                  usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
-                  tp->hEventSem = NULLHANDLE;
-                  t = MAX_TRANSFERS;
-                  break;
-               }
-
-               if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
-               {
-                   tp->thrd = NULL;
-                   DosCloseEventSem(tp->hEventSem);
-                   tp->hEventSem = NULLHANDLE;
-                   t = MAX_TRANSFERS;
-                   break;
-               }
-
-               tp->itransfer   = itransfer;
-               tp->toCancel    = FALSE;
-               tp->toTerminate = FALSE;
-               tp->inProgress  = FALSE;
-               break;
-           }
-       }
-   }
-   DosReleaseMutexSem(ghTransferMgmtMutex);
-
-   if (t >= MAX_TRANSFERS)
+   tp = _getTransferMgmtEntry(itransfer);
+   if (!tp)
    {
        usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
@@ -1276,7 +1254,6 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
    int length = 0;
    int iface = 0;
    int errorcode = LIBUSB_SUCCESS;
-   unsigned t = 0;
    struct transfer_mgmt *tp = NULL;
 
    if (!transfer->dev_handle)
@@ -1329,49 +1306,8 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
       return (LIBUSB_ERROR_INVALID_PARAM);
    }
 
-   DosRequestMutexSem(ghTransferMgmtMutex,SEM_INDEFINITE_WAIT);
-   for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
-   {
-       if (tp->itransfer == itransfer)
-       {
-           break;
-       }
-   }
-
-   if (t >= MAX_TRANSFERS)
-   {
-       for (t=0,tp = gTransferArray;t<MAX_TRANSFERS ;t++,tp++ )
-       {
-           if (!tp->itransfer)
-           {
-               rc = DosCreateEventSem(NULL,&tp->hEventSem,DC_SEM_SHARED,FALSE);
-               if (NO_ERROR != rc) {
-                  usbi_dbg("hEventSem: DosCreateEventSem failed, apiret: %lu",rc);
-                  tp->hEventSem = NULLHANDLE;
-                  t = MAX_TRANSFERS;
-                  break;
-               }
-
-               if (pthread_create(&tp->thrd,NULL,GenericHandlingThread,(void *)tp))
-               {
-                   tp->thrd = NULL;
-                   DosCloseEventSem(tp->hEventSem);
-                   tp->hEventSem = NULLHANDLE;
-                   t = MAX_TRANSFERS;
-                   break;
-               }
-
-               tp->itransfer   = itransfer;
-               tp->toCancel    = FALSE;
-               tp->toTerminate = FALSE;
-               tp->inProgress  = FALSE;
-               break;
-           }
-       }
-   }
-   DosReleaseMutexSem(ghTransferMgmtMutex);
-
-   if (t >= MAX_TRANSFERS)
+   tp = _getTransferMgmtEntry(itransfer);
+   if (!tp)
    {
        usbi_dbg("transfer management array is depleted, cannot manage an additional transfer");
        return (LIBUSB_ERROR_OVERFLOW);
