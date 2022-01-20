@@ -171,7 +171,7 @@ unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
             return 0;
         }
 
-        pthread_attr_setprio(&attr,PRTYD_MAXIMUM); /* only only change delta, not class */
+        pthread_attr_setprio(&attr,PRTYD_MAXIMUM); /* can only change delta, not class */
 
         if (pthread_create(&gThrd,&attr,GenericHandlingThread,NULL))
         {
@@ -186,8 +186,9 @@ unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
     }
     else if (1 == flag)
     {
+        DosDeleteMuxWaitSem(ghMux,(HSEM)ghTerminateSem);
+        DosCloseEventSem(ghTerminateSem);
         DosCloseMuxWaitSem(ghMux);
-
         _CRT_term();
     }
     return 1;
