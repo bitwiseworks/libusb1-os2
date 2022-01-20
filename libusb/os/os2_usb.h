@@ -64,16 +64,6 @@ struct device_priv
    unsigned char           cdesc[4096];                     /* active config descriptor */
 };
 
-struct transfer_mgmt
-{
-    HEV hEventSem;
-    pthread_t thrd;
-    struct usbi_transfer *itransfer;
-    BOOL toCancel;
-    BOOL toTerminate;
-    BOOL inProgress;
-};
-
 struct transfer_priv
 {
    unsigned char       protect1[PAGE_SIZE];        /* USBRESMG quirk, we need to ensure that "Response" lives in its own page */
@@ -81,7 +71,9 @@ struct transfer_priv
    unsigned char       protect2[PAGE_SIZE];        /* USBRESMG quirk, we need to ensure that "Response" lives in its own page */
    unsigned int        ToProcess;                  /* bytes for control/bulk/irq, packets for iso */
    unsigned int        Processed;                  /* bytes for control/bulk/irq, packets for iso */
-   enum libusb_transfer_status status;
+   enum libusb_transfer_status status;             /* keep track of transmission status so that we can properly set it in os2_handle_transfer_completion */
+   HEV  hEventSem;                                 /* notification semaphore for this transfer */
+   BOOL toCancel;                                  /* flag to indicate that this transfer is to be cancelled */
 };
 #pragma pack()
 
