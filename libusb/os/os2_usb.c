@@ -544,6 +544,7 @@ static int os2_open(struct libusb_device_handle *handle)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET    rc = NO_ERROR;
    int       usbhandle;
+   int       ret = LIBUSB_SUCCESS;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
    usbi_mutex_lock(&dev->lock);
@@ -566,7 +567,8 @@ static int os2_open(struct libusb_device_handle *handle)
       if (rc)
       {
          dpriv->fd = -1U;
-         return( _apiret_to_libusb(rc));
+         ret = _apiret_to_libusb(rc);
+         goto leave;
       }
 
       dpriv->fd = usbhandle;
@@ -578,9 +580,10 @@ static int os2_open(struct libusb_device_handle *handle)
    /* endif */
    dpriv->numOpens++;
 
+leave:
    usbi_mutex_unlock(&dev->lock);
 
-   return(LIBUSB_SUCCESS);
+   return(ret);
 }
 
 static void os2_close(struct libusb_device_handle *handle)
