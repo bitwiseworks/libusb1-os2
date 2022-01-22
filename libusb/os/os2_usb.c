@@ -850,10 +850,26 @@ static void os2_destroy_device(struct libusb_device *dev)
 
 static int os2_submit_transfer(struct usbi_transfer *itransfer)
 {
+   struct libusb_context *ctx       = ITRANSFER_CTX(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    int err = LIBUSB_SUCCESS;
 
    usbi_dbg(" ");
+
+   /*
+    * protect the transfers that are submitted
+    * from being incorrectly added to the list
+    * of flying transfers: there is a chance
+    * that the itransfer address of a transfer
+    * to be freed matches the itransfer address
+    * of a newly allocated transfer in case
+    * the heap managment picks the very same memory
+    * block for its allocation
+    * We do this by requesting the flying transfer
+    * mutex for the whole time that we are busy
+    * submitting a transfer
+    */
+   usbi_mutex_lock(&ctx->flying_transfers_lock);
 
    switch (transfer->type) {
    case LIBUSB_TRANSFER_TYPE_CONTROL:
@@ -878,6 +894,9 @@ static int os2_submit_transfer(struct usbi_transfer *itransfer)
       err = LIBUSB_ERROR_NOT_SUPPORTED;
       break;
    }
+
+   usbi_mutex_unlock(&ctx->flying_transfers_lock);
+
    return(err);
 }
 
