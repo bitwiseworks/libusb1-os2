@@ -190,9 +190,13 @@ static inline void list_add_tail(struct list_head *entry,
 
 static inline void list_del(struct list_head *entry)
 {
-	entry->next->prev = entry->prev;
-	entry->prev->next = entry->next;
-	entry->next = entry->prev = entry;
+	if (entry->next) {
+		entry->next->prev = entry->prev;
+	}
+	if (entry->prev) {
+		entry->prev->next = entry->next;
+	}
+	entry->next = entry->prev = NULL;
 }
 
 static inline void list_cut(struct list_head *list, struct list_head *head)

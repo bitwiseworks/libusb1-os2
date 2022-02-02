@@ -221,7 +221,7 @@ static void *GenericHandlingThread(void *arg)
        itransfer = (struct usbi_transfer *)ulUser;
        transfer  = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 
-       if (NO_ERROR == rc)
+       if ((NO_ERROR == rc) && transfer->dev_handle)
        {
          /*
           * at this point, we always need to check for transfer type:
@@ -963,7 +963,7 @@ static int os2_handle_transfer_completion(struct usbi_transfer *itransfer)
     * from trapping. In the specific error case, an attempt was made to remove this transfer element
     * multiple times. Therefore we check for "empty list".
     */
-   if (list_empty(&itransfer->list))
+   if (!itransfer->list.next || !itransfer->list.prev)
    {
        usbi_dbg("transfer no longer chained in, aborting !");
        return (LIBUSB_ERROR_INVALID_PARAM);
