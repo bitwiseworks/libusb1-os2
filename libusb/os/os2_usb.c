@@ -44,11 +44,11 @@ static void IsoStreamHandlingRoutine(struct usbi_transfer *itransfer);
  * Backend functions
  */
 static int os2_get_device_list(struct libusb_context *,struct discovered_devs **);
-static int os2_wrap_sys_device(struct libusb_context *ctx,struct libusb_device_handle *dev_handle, intptr_t sys_dev);
 static int os2_open(struct libusb_device_handle *);
 static void os2_close(struct libusb_device_handle *);
 static int os2_get_active_config_descriptor(struct libusb_device *,void *, size_t);
 static int os2_get_config_descriptor(struct libusb_device *, uint8_t,void *, size_t);
+static int os2_get_config_descriptor_by_value(struct libusb_device *,uint8_t, void **);
 static int os2_get_configuration(struct libusb_device_handle *, uint8_t *);
 static int os2_set_configuration(struct libusb_device_handle *, int);
 static int os2_claim_interface(struct libusb_device_handle *, uint8_t);
@@ -61,9 +61,6 @@ static int os2_submit_transfer(struct usbi_transfer *);
 static int os2_cancel_transfer(struct usbi_transfer *);
 static void os2_clear_transfer_priv(struct usbi_transfer *);
 static int os2_handle_transfer_completion(struct usbi_transfer *);
-static int os2_kernel_driver_active(struct libusb_device_handle *dev_handle, uint8_t iface);
-static int os2_attach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface);
-static int os2_detach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface);
 
 /*
  * Private functions
@@ -82,46 +79,35 @@ const struct usbi_os_backend usbi_backend = {
    USBI_CAP_HAS_HID_ACCESS, /* OS/2 USB driver stack makes no attempt to prevent arbitrary access to any USB device */
    NULL,          /* init() */
    NULL,          /* exit() */
-   NULL,          /* set_option() TODO TODO TODO */
+   NULL,          /* set_option() */
    os2_get_device_list,
    NULL,          /* hotplug_poll() */
-   os2_wrap_sys_device,
+   NULL,          /* wrap_sys_device() */
    os2_open,
    os2_close,
-
    os2_get_active_config_descriptor,
    os2_get_config_descriptor,
-   NULL,          /* get_config_descriptor_by_value() */
-
+   os2_get_config_descriptor_by_value,
    os2_get_configuration,
    os2_set_configuration,
-
    os2_claim_interface,
    os2_release_interface,
-
    os2_set_interface_altsetting,
    os2_clear_halt,
    os2_reset_device,
-
    NULL,          /* alloc_streams */
    NULL,          /* free_streams */
-
    NULL,          /* dev_mem_alloc() */
    NULL,          /* dev_mem_free() */
-
-   os2_kernel_driver_active,
-   os2_detach_kernel_driver,
-   os2_attach_kernel_driver,
-
+   NULL,          /* kernel_driver_active() */
+   NULL,          /* detach_kernel_driver() */
+   NULL,          /* attach_kernel_driver() */
    os2_destroy_device,
-
    os2_submit_transfer,
    os2_cancel_transfer,
    os2_clear_transfer_priv,
-
    NULL,            /* handle_events() */
    os2_handle_transfer_completion,
-
    0,                            /* context private data */
    sizeof(struct device_priv),   /* device private data */
    0,                            /* handle private data */
@@ -520,22 +506,14 @@ static int os2_get_device_list(struct libusb_context * ctx, struct discovered_de
          }
       }
       ddd = discovered_devs_append(*discdevs, dev);
+      libusb_unref_device(dev);
       if (ddd == NULL) {
          return(LIBUSB_ERROR_NO_MEM);
       }
-      libusb_unref_device(dev);
 
       *discdevs = ddd;
    }
    return(LIBUSB_SUCCESS);
-}
-
-static int os2_wrap_sys_device(struct libusb_context *ctx,struct libusb_device_handle *dev_handle, intptr_t sys_dev)
-{
-    UNUSED(ctx);
-    UNUSED(dev_handle);
-    UNUSED(sys_dev);
-    return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
 static int os2_open(struct libusb_device_handle *handle)
@@ -679,6 +657,20 @@ static int os2_get_config_descriptor(struct libusb_device *dev, uint8_t idx,void
    /* just return the active config descriptor, it's a bad idea to arbitrarily switch configuration anyway */
    return(os2_get_active_config_descriptor(dev,buf,len));
 }
+
+static int os2_get_config_descriptor_by_value(struct libusb_device *dev,uint8_t bConfigurationValue, void **buffer)
+{
+   struct device_priv *dpriv            = (struct device_priv *)usbi_get_device_priv(dev);
+
+   if (bConfigurationValue != 1)
+   {
+       return LIBUSB_ERROR_NOT_FOUND;
+   }
+   *buffer = dpriv->cdesc;
+
+   return LIBUSB_SUCCESS;
+}
+
 
 /*
  * as requested in the function description in libusbi.h, make sure we avoid I/O to get the configuration value
@@ -1380,28 +1372,5 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
    usbi_mutex_unlock(&dev->lock);
 
    return(errorcode);
-}
-
-
-/* The 3 functions below are unlikely to ever get supported on OS/2 */
-static int os2_kernel_driver_active(struct libusb_device_handle *dev_handle, uint8_t iface)
-{
-   UNUSED(dev_handle);
-   UNUSED(iface);
-   return(LIBUSB_ERROR_NOT_SUPPORTED);
-}
-
-static int os2_attach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface)
-{
-   UNUSED(dev_handle);
-   UNUSED(iface);
-   return(LIBUSB_ERROR_NOT_SUPPORTED);
-}
-
-static int os2_detach_kernel_driver(struct libusb_device_handle *dev_handle, uint8_t iface)
-{
-   UNUSED(dev_handle);
-   UNUSED(iface);
-   return(LIBUSB_ERROR_NOT_SUPPORTED);
 }
 
