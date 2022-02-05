@@ -174,7 +174,10 @@ static inline void list_add(struct list_head *entry, struct list_head *head)
 	entry->next = head->next;
 	entry->prev = head;
 
-	head->next->prev = entry;
+	if (head->next)
+	{
+        head->next->prev = entry;
+	}
 	head->next = entry;
 }
 
@@ -184,7 +187,10 @@ static inline void list_add_tail(struct list_head *entry,
 	entry->next = head;
 	entry->prev = head->prev;
 
-	head->prev->next = entry;
+	if (head->prev)
+	{
+        head->prev->next = entry;
+	}
 	head->prev = entry;
 }
 
@@ -195,6 +201,11 @@ static inline void list_del(struct list_head *entry)
 	}
 	if (entry->prev) {
 		entry->prev->next = entry->next;
+	}
+	if (entry->next->next == entry)
+	{
+        entry->next->prev = NULL;
+        entry->next->next = NULL;
 	}
 	entry->next = entry->prev = NULL;
 }
