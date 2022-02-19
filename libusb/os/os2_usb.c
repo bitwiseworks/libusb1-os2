@@ -1087,6 +1087,8 @@ static int _apiret_to_libusb(ULONG err)
        return(LIBUSB_ERROR_INVALID_PARAM);
    case (ERROR_USER_DEFINED_BASE | ERROR_DEV_NOT_EXIST):
        return(LIBUSB_ERROR_NO_DEVICE);
+   case (ERROR_USER_DEFINED_BASE | USB_IDC_NOBANDWIDTH):
+       return(LIBUSB_ERROR_BUSY);
    case USB_IORB_FAILED:
       return(LIBUSB_ERROR_IO);
    case ERROR_INVALID_PARAMETER:

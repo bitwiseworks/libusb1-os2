@@ -34,6 +34,8 @@
 
 #define MAX_TRANSFERS               128
 
+#define USB_IDC_NOBANDWIDTH         0x0015
+
 #pragma pack(1)
 typedef struct _GETDEVINFODATA_
 {
