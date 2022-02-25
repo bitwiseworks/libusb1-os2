@@ -1422,6 +1422,7 @@ static void do_close(struct libusb_context *ctx,
 		 * (or that such accesses will be easily caught and identified as a crash)
 		 */
 		list_del(&itransfer->list);
+		libusb_unref_device(transfer->dev_handle->dev); /* LARS ERDMANN */
 		transfer->dev_handle = NULL;
 
 		/* it is up to the user to free up the actual transfer struct.  this is

@@ -377,7 +377,7 @@ static void IsoStreamHandlingRoutine(struct usbi_transfer *itransfer)
     }
 
     usbi_mutex_lock(&dev->lock);
-    dpriv->numIsoBuffsInUse -= 1;
+    if (dpriv->numIsoBuffsInUse) dpriv->numIsoBuffsInUse -= 1;
     usbi_dbg("Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
     usbi_mutex_unlock(&dev->lock);
 
@@ -581,23 +581,13 @@ static void os2_close(struct libusb_device_handle *handle)
        dpriv->numOpens--;
        numOpens = dpriv->numOpens;
    }
-   /*
-    * free the dev mutex here, because it will be claimed by libusb_unref_dev further below !
-    */
-   usbi_mutex_unlock(&dev->lock);
 
    usbi_dbg("on entry: fd %#.8lx, numOpens: %u", dpriv->fd,numOpens);
-
 
    if (numOpens == 0)
    {
       rc = DosQueryMuxWaitSem(ghMux,&numSems,semRec,&ulAttributes);
       usbi_dbg("DosQueryMuxWaitSem, numSems = %lu, rc = %lu",numSems,rc);
-      /*
-       * decrement by the ghTerminateSem in order to find out how many
-       * transfers are still flying
-       */
-      if (numSems) numSems--;
 
       /*
        * kludge: we only want the worker thread to stop on the very last close
@@ -609,22 +599,6 @@ static void os2_close(struct libusb_device_handle *handle)
           pthread_join(gThrd,NULL);
       }
 
-      while(numSems)
-      {
-         usbi_dbg("unref device once");
-
-         /*
-          * libusb increments the ref cnt on every "libusb_submit_transfer"
-          * and decrements it on every "usbi_handle_transfer_completion"
-          * however a transfer that is never executed (and therefore, still chained)
-          * will miss the decrement because it is never completed,
-          * which will lead to the device not being properly destroyed in the libusb library
-          * we unref it once so that the libusb ref cnt can finally reach zero
-          */
-          libusb_unref_device(dev);
-          numSems--;
-      }
-
       rc = UsbClose(dpriv->fd);
 
       usbi_dbg( "UsbClose: id = %#04x:%#04x  rc = %lu",
@@ -634,6 +608,9 @@ static void os2_close(struct libusb_device_handle *handle)
 
       dpriv->fd = -1U;
    }
+
+   usbi_mutex_unlock(&dev->lock);
+
    /* endif */
 }
 
@@ -1089,6 +1066,8 @@ static int _apiret_to_libusb(ULONG err)
        return(LIBUSB_ERROR_NO_DEVICE);
    case (ERROR_USER_DEFINED_BASE | USB_IDC_NOBANDWIDTH):
        return(LIBUSB_ERROR_BUSY);
+   case (ERROR_USER_DEFINED_BASE | USB_IDC_ADDRINV):
+        return(LIBUSB_ERROR_NOT_FOUND);
    case USB_IORB_FAILED:
       return(LIBUSB_ERROR_IO);
    case ERROR_INVALID_PARAMETER:
