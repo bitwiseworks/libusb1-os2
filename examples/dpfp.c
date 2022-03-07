@@ -229,7 +229,11 @@ static thread_return_t __stdcall poll_thread_main(void *arg)
 static int find_dpfp_device(void)
 {
 	devh = libusb_open_device_with_vid_pid(NULL, 0x05ba, 0x000a);
-	return devh ? 0 : -ENODEV;
+	if (!devh) {
+		errno = ENODEV;
+		return -1;
+	}
+	return 0;
 }
 
 static int print_f0_data(void)
@@ -328,13 +332,16 @@ static int set_mode_async(unsigned char data)
 	unsigned char *buf = malloc(LIBUSB_CONTROL_SETUP_SIZE + 1);
 	struct libusb_transfer *transfer;
 
-	if (!buf)
-		return -ENOMEM;
+	if (!buf) {
+		errno = ENOMEM;
+		return -1;
+	}
 
 	transfer = libusb_alloc_transfer(0);
 	if (!transfer) {
 		free(buf);
-		return -ENOMEM;
+		errno = ENOMEM;
+		return -1;
 	}
 
 	printf("async set mode %02x\n", data);
@@ -559,12 +566,16 @@ static int do_init(void)
 static int alloc_transfers(void)
 {
 	img_transfer = libusb_alloc_transfer(0);
-	if (!img_transfer)
-		return -ENOMEM;
+	if (!img_transfer) {
+		errno = ENOMEM;
+		return -1;
+	}
 
 	irq_transfer = libusb_alloc_transfer(0);
-	if (!irq_transfer)
-		return -ENOMEM;
+	if (!irq_transfer) {
+		errno = ENOMEM;
+		return -1;
+	}
 
 	libusb_fill_bulk_transfer(img_transfer, devh, EP_DATA, imgbuf,
 		sizeof(imgbuf), cb_img, NULL, 0);
