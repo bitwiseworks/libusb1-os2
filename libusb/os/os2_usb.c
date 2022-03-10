@@ -346,7 +346,8 @@ static void IsoStreamHandlingRoutine(struct usbi_transfer *itransfer)
 {
     struct transfer_priv *tpriv     = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
     struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-    struct libusb_device *dev       = transfer->dev_handle->dev;
+    struct libusb_device_handle *handle = transfer->dev_handle;
+    struct libusb_device *dev       = handle->dev;
     struct device_priv *dpriv       = (struct device_priv *)usbi_get_device_priv(dev);
     unsigned int j;
 
@@ -376,10 +377,10 @@ static void IsoStreamHandlingRoutine(struct usbi_transfer *itransfer)
       tpriv->Processed += tpriv->ToProcess;
     }
 
-    usbi_mutex_lock(&dev->lock);
+    usbi_mutex_lock(&handle->lock);
     if (dpriv->numIsoBuffsInUse) dpriv->numIsoBuffsInUse -= 1;
     usbi_dbg(ITRANSFER_CTX(itransfer), "Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
-    usbi_mutex_unlock(&dev->lock);
+    usbi_mutex_unlock(&handle->lock);
 
     usbi_dbg(ITRANSFER_CTX(itransfer), "transferred %u of %u bytes",itransfer->transferred,transfer->length);
 
@@ -525,7 +526,7 @@ static int os2_open(struct libusb_device_handle *handle)
    int       ret = LIBUSB_SUCCESS;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
-   usbi_mutex_lock(&dev->lock);
+   usbi_mutex_lock(&handle->lock);
 
    usbi_dbg(HANDLE_CTX(handle), "on entry: fd %#.8lx, numOpens: %u", dpriv->fd,dpriv->numOpens);
 
@@ -559,7 +560,7 @@ static int os2_open(struct libusb_device_handle *handle)
    dpriv->numOpens++;
 
 leave:
-   usbi_mutex_unlock(&dev->lock);
+   usbi_mutex_unlock(&handle->lock);
 
    return(ret);
 }
@@ -575,7 +576,7 @@ static void os2_close(struct libusb_device_handle *handle)
    ULONG ulAttributes = 0;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
-   usbi_mutex_lock(&dev->lock);
+   usbi_mutex_lock(&handle->lock);
    if (dpriv->numOpens)
    {
        dpriv->numOpens--;
@@ -609,7 +610,7 @@ static void os2_close(struct libusb_device_handle *handle)
       dpriv->fd = -1U;
    }
 
-   usbi_mutex_unlock(&dev->lock);
+   usbi_mutex_unlock(&handle->lock);
 
    /* endif */
 }
@@ -926,18 +927,6 @@ static int os2_handle_transfer_completion(struct usbi_transfer *itransfer)
 
    usbi_dbg(ITRANSFER_CTX(itransfer), " ");
 
-   /*
-    * transfers are freed behind libusb back. And this is one place where we have to catch
-    * this error to prevent "usbi_handle_transfer_cancellation/usbi_handle_transfer_completion"
-    * from trapping. In the specific error case, an attempt was made to remove this transfer element
-    * multiple times. Therefore we check for "empty list".
-    */
-   if (!itransfer->list.next || !itransfer->list.prev)
-   {
-       usbi_dbg(ITRANSFER_CTX(itransfer), "transfer no longer chained in, aborting !");
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
-
    if (TRUE == tpriv->toCancel)
    {
       tpriv->toCancel = FALSE;
@@ -1201,6 +1190,7 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
 
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+   struct libusb_device_handle *handle = NULL;
    struct libusb_device *dev        = NULL;
    struct device_priv *dpriv        = NULL;
    APIRET rc = NO_ERROR;
@@ -1217,7 +1207,8 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
        return (LIBUSB_ERROR_INVALID_PARAM);
    }
 
-   dev = transfer->dev_handle->dev;
+   handle = transfer->dev_handle;
+   dev = handle->dev;
    dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    usbi_dbg(ITRANSFER_CTX(itransfer), "initial:num iso packets %u, buffer len %u",transfer->num_iso_packets,transfer->length);
@@ -1296,8 +1287,8 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
    num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
    if (!num_max_packets_per_execution) num_max_packets_per_execution = 1;
 
-   /* take device mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
-   usbi_mutex_lock(&dev->lock);
+   /* take device handle mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
+   usbi_mutex_lock(&handle->lock);
 
    if ((dpriv->numIsoBuffsInUse + 1) > NUM_ISO_BUFFS) {
       errorcode = LIBUSB_ERROR_OVERFLOW;
@@ -1350,7 +1341,7 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
 
    usbi_dbg(ITRANSFER_CTX(itransfer), "Num Iso Buffers in use:%u, libusb error: %d",dpriv->numIsoBuffsInUse,errorcode);
 
-   usbi_mutex_unlock(&dev->lock);
+   usbi_mutex_unlock(&handle->lock);
 
    return(errorcode);
 }
