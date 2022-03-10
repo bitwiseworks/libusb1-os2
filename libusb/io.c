@@ -1338,11 +1338,35 @@ void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 	if (!transfer)
 		return;
 
-	usbi_dbg(TRANSFER_CTX(transfer), "transfer %p", transfer);
+	/*
+	 * unfortunately, querying the context from the transfer
+	 * is not reliable at this point because either dev_handle or
+	 * dev or ctx might be NULL at the point of calling this routine
+	 */
+	usbi_dbg(NULL, "transfer %p", transfer);
+
+#ifdef __OS2__  /* LARS ERDMANN */
+	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
+	/*
+	 * normally, the transfers will have already been removed from the completed
+	 * list for any transfer properly completed. However, there might be
+	 * transfers still pending for completion notification that are being
+	 * freed by the user. Need to ensure that these are removed from the completed
+	 * list so that "os2_handle_transfer_completion" will NOT be called for these
+	 * already freed transfers !
+	 */
+	if (itransfer->completed_list.next && itransfer->completed_list.prev)
+	{
+        list_del(&itransfer->completed_list);
+	}
+#endif
+
 	if (transfer->flags & LIBUSB_TRANSFER_FREE_BUFFER)
 		free(transfer->buffer);
 
+#ifndef __OS2__  /* LARS ERDMANN */
 	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
+#endif
 	usbi_mutex_destroy(&itransfer->lock);
 
 	priv_size = PTR_ALIGN(usbi_backend.transfer_priv_size);
