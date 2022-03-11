@@ -1338,6 +1338,9 @@ void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 	if (!transfer)
 		return;
 
+#ifndef __OS2__  /* LARS ERDMANN */
+	usbi_dbg(TRANSFER_CTX(transfer), "transfer %p", transfer);
+#else
 	/*
 	 * unfortunately, querying the context from the transfer
 	 * is not reliable at this point because either dev_handle or
@@ -1345,7 +1348,6 @@ void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 	 */
 	usbi_dbg(NULL, "transfer %p", transfer);
 
-#ifdef __OS2__  /* LARS ERDMANN */
 	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
 	/*
 	 * normally, the transfers will have already been removed from the completed
