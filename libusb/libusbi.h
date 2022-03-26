@@ -197,16 +197,16 @@ static inline void list_init(struct list_head *entry)
 	entry->prev = entry->next = entry;
 }
 
-extern usbi_atomic_t gListLock;
+//extern usbi_atomic_t gListLock;
 
 static inline void list_add(struct list_head *entry, struct list_head *head)
 {
-	long unLockKey=0;
-	do
-	{
-	    unLockKey = 0;
-	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
-	} while (unLockKey);
+//	long unLockKey=0;
+//	do
+//	{
+//	    unLockKey = 0;
+//	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
+//	} while (unLockKey);
 	
 	entry->next = head->next;
 	entry->prev = head;
@@ -217,18 +217,18 @@ static inline void list_add(struct list_head *entry, struct list_head *head)
 	}
 	head->next = entry;
 	
-	atomic_store(&gListLock,0);
+//	atomic_store(&gListLock,0);
 }
 
 static inline void list_add_tail(struct list_head *entry,
 	struct list_head *head)
 {
-	long unLockKey=0;
-	do
-	{
-	    unLockKey = 0;
-	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
-	} while (unLockKey);
+//	long unLockKey=0;
+//	do
+//	{
+//	    unLockKey = 0;
+//	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
+//	} while (unLockKey);
 
 	entry->next = head;
 	entry->prev = head->prev;
@@ -239,17 +239,17 @@ static inline void list_add_tail(struct list_head *entry,
 	}
 	head->prev = entry;
 
-	atomic_store(&gListLock,0);
+//	atomic_store(&gListLock,0);
 }
 
 static inline void list_del(struct list_head *entry)
 {
-	long unLockKey=0;
-	do
-	{
-	    unLockKey = 0;
-	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
-	} while (unLockKey);
+//	long unLockKey=0;
+//	do
+//	{
+//	    unLockKey = 0;
+//	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
+//	} while (unLockKey);
 
 	if (entry->next && entry->prev) {
 		entry->next->prev = entry->prev;
@@ -257,17 +257,17 @@ static inline void list_del(struct list_head *entry)
 	}
 	entry->next = entry->prev = NULL;
 
-	atomic_store(&gListLock,0);
+//	atomic_store(&gListLock,0);
 }
 
 static inline void list_cut(struct list_head *list, struct list_head *head)
 {
-	long unLockKey=0;
-	do
-	{
-	    unLockKey = 0;
-	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
-	} while (unLockKey);
+//	long unLockKey=0;
+//	do
+//	{
+//	    unLockKey = 0;
+//	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
+//	} while (unLockKey);
 
 	if (list_empty(head)) {
 		list_init(list);
@@ -281,24 +281,24 @@ static inline void list_cut(struct list_head *list, struct list_head *head)
 
 	list_init(head);
 
-	atomic_store(&gListLock,0);
+//	atomic_store(&gListLock,0);
 }
 
 static inline void list_splice_front(struct list_head *list, struct list_head *head)
 {
-	long unLockKey=0;
-	do
-	{
-	    unLockKey = 0;
-	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
-	} while (unLockKey);
+//	long unLockKey=0;
+//	do
+//	{
+//	    unLockKey = 0;
+//	    atomic_compare_exchange_strong(&gListLock,&unLockKey,1);
+//	} while (unLockKey);
 
 	list->next->prev = head;
 	list->prev->next = head->next;
 	head->next->prev = list->prev;
 	head->next = list->next;
 
-	atomic_store(&gListLock,0);
+//	atomic_store(&gListLock,0);
 }
 
 static inline void *usbi_reallocf(void *ptr, size_t size)

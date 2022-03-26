@@ -830,12 +830,11 @@ static void os2_destroy_device(struct libusb_device *dev)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    _call_iso_close(dev);
-   DosCloseMutexSem(dpriv->hDevMutex); dpriv->hDevMutex = NULLHANDLE;
-   libusb_free_config_descriptor(dpriv->curr_config_descriptor); dpriv->curr_config_descriptor = NULL;
+
+   DosCloseMutexSem(dpriv->hDevMutex);
+   libusb_free_config_descriptor(dpriv->curr_config_descriptor);
 
    usbi_dbg(DEVICE_CTX(dev), "freed libusb_get_config_descriptor: %p", dpriv->curr_config_descriptor);
-
-   dpriv->curr_config_descriptor = NULL;
 }
 
 static int os2_submit_transfer(struct usbi_transfer *itransfer)
