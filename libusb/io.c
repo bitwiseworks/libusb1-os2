@@ -1309,6 +1309,8 @@ struct libusb_transfer * LIBUSB_CALL libusb_alloc_transfer(
 	itransfer->priv = ptr;
 	usbi_mutex_init(&itransfer->lock);
 	transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+	
+	usbi_dbg(NULL, "transfer %p", transfer);
 	return transfer;
 }
 
@@ -1331,44 +1333,25 @@ struct libusb_transfer * LIBUSB_CALL libusb_alloc_transfer(
  */
 void API_EXPORTED libusb_free_transfer(struct libusb_transfer *transfer)
 {
-	struct usbi_transfer *itransfer;
+
+	struct libusb_context *ctx = TRANSFER_CTX(transfer);
+	struct usbi_transfer *itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
 	size_t priv_size;
 	unsigned char *ptr;
 
 	if (!transfer)
 		return;
 
-#ifndef __OS2__  /* LARS ERDMANN */
-	usbi_dbg(TRANSFER_CTX(transfer), "transfer %p", transfer);
-#else
-	/*
-	 * unfortunately, querying the context from the transfer
-	 * is not reliable at this point because either dev_handle or
-	 * dev or ctx might be NULL at the point of calling this routine
-	 */
-	usbi_dbg(NULL, "transfer %p", transfer);
-
-	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
-	/*
-	 * normally, the transfers will have already been removed from the completed
-	 * list for any transfer properly completed. However, there might be
-	 * transfers still pending for completion notification that are being
-	 * freed by the user. Need to ensure that these are removed from the completed
-	 * list so that "os2_handle_transfer_completion" will NOT be called for these
-	 * already freed transfers !
-	 */
-	if (itransfer->completed_list.next && itransfer->completed_list.prev)
-	{
-        list_del(&itransfer->completed_list);
-	}
-#endif
+	usbi_dbg(ctx, "transfer %p", transfer);
+	
+	usbi_mutex_lock(&ctx->event_data_lock);
+	list_del(&itransfer->completed_list);
+	list_del(&itransfer->list);
+	usbi_mutex_unlock(&ctx->event_data_lock);
 
 	if (transfer->flags & LIBUSB_TRANSFER_FREE_BUFFER)
 		free(transfer->buffer);
 
-#ifndef __OS2__  /* LARS ERDMANN */
-	itransfer = LIBUSB_TRANSFER_TO_USBI_TRANSFER(transfer);
-#endif
 	usbi_mutex_destroy(&itransfer->lock);
 	if (itransfer->dev)
 		libusb_unref_device(itransfer->dev);
@@ -1489,6 +1472,11 @@ static int remove_from_flying_list(struct usbi_transfer *itransfer)
 	int r = 0;
 
 	usbi_mutex_lock(&ctx->flying_transfers_lock);
+
+	usbi_mutex_lock(&itransfer->lock);
+	itransfer->state_flags &= ~USBI_TRANSFER_IN_FLIGHT;
+	usbi_mutex_unlock(&itransfer->lock);
+
 	rearm_timer = (TIMESPEC_IS_SET(&itransfer->timeout) &&
 		list_first_entry(&ctx->flying_transfers, struct usbi_transfer, list) == itransfer);
 	list_del(&itransfer->list);
@@ -1698,10 +1686,6 @@ int usbi_handle_transfer_completion(struct usbi_transfer *itransfer,
 	r = remove_from_flying_list(itransfer);
 	if (r < 0)
 		usbi_err(ctx, "failed to set timer for next timeout");
-
-	usbi_mutex_lock(&itransfer->lock);
-	itransfer->state_flags &= ~USBI_TRANSFER_IN_FLIGHT;
-	usbi_mutex_unlock(&itransfer->lock);
 
 	if (status == LIBUSB_TRANSFER_COMPLETED
 			&& transfer->flags & LIBUSB_TRANSFER_SHORT_NOT_OK) {

@@ -117,7 +117,7 @@ const struct usbi_os_backend usbi_backend = {
 static HMUX ghMux               = NULLHANDLE;
 static HEV  ghTerminateSem      = NULLHANDLE;
 static pthread_t gThrd          = NULL;
-
+usbi_atomic_t gListLock = 0;
 
 unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
 {
@@ -207,7 +207,7 @@ static void *GenericHandlingThread(void *arg)
        itransfer = (struct usbi_transfer *)ulUser;
        transfer  = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 
-       if ((NO_ERROR == rc) && transfer->dev_handle)
+       if (NO_ERROR == rc)
        {
          /*
           * at this point, we always need to check for transfer type:
@@ -273,7 +273,7 @@ static void BulkIrqHandlingRoutine(struct usbi_transfer *itransfer)
 {
     struct transfer_priv *tpriv     = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
     struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-    struct libusb_device *dev       = transfer->dev_handle->dev;
+    struct libusb_device *dev       = itransfer->dev;
     struct device_priv *dpriv       = (struct device_priv *)usbi_get_device_priv(dev);
     APIRET rc;
 
@@ -346,12 +346,16 @@ static void IsoStreamHandlingRoutine(struct usbi_transfer *itransfer)
 {
     struct transfer_priv *tpriv     = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
     struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-    struct libusb_device_handle *handle = transfer->dev_handle;
-    struct libusb_device *dev       = handle->dev;
+    struct libusb_device *dev       = itransfer->dev;
     struct device_priv *dpriv       = (struct device_priv *)usbi_get_device_priv(dev);
     unsigned int j;
 
     usbi_dbg(ITRANSFER_CTX(itransfer), "iso: Response.usStatus = %#x",(unsigned int)tpriv->Response.usStatus);
+
+    if (!transfer->dev_handle)
+    {
+        return;
+    }
 
     if (TRUE == tpriv->toCancel)
     {
@@ -377,10 +381,10 @@ static void IsoStreamHandlingRoutine(struct usbi_transfer *itransfer)
       tpriv->Processed += tpriv->ToProcess;
     }
 
-    usbi_mutex_lock(&handle->lock);
+    DosRequestMutexSem(dpriv->hDevMutex,SEM_INDEFINITE_WAIT);
     if (dpriv->numIsoBuffsInUse) dpriv->numIsoBuffsInUse -= 1;
     usbi_dbg(ITRANSFER_CTX(itransfer), "Num Iso Buffers in use:%u",dpriv->numIsoBuffsInUse);
-    usbi_mutex_unlock(&handle->lock);
+    DosReleaseMutexSem(dpriv->hDevMutex);
 
     usbi_dbg(ITRANSFER_CTX(itransfer), "transferred %u of %u bytes",itransfer->transferred,transfer->length);
 
@@ -487,28 +491,41 @@ static int os2_get_device_list(struct libusb_context * ctx, struct discovered_de
          dev->device_descriptor.bNumConfigurations = pDeviceDescriptor->bNumConfigurations;
          usbi_localize_device_descriptor(&dev->device_descriptor);
 
-         dpriv = (struct device_priv *)usbi_get_device_priv(dev);
-         dpriv->fd = -1U;
-         dpriv->numIsoBuffsInUse = 0;
-         dpriv->numOpens = 0;
-         memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
-         memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
-         memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
-         if (LIBUSB_SUCCESS != libusb_get_config_descriptor(dev,0,&dpriv->curr_config_descriptor))
-         {
-             dpriv->curr_config_descriptor = NULL;
-         }
-
-         usbi_dbg(ctx, "allocated libusb_get_config_descriptor: %p", dpriv->curr_config_descriptor);
-
          if (usbi_sanitize_device(dev)) {
             libusb_unref_device(dev);
             continue;
          }
+
+         dpriv = (struct device_priv *)usbi_get_device_priv(dev);
+
+
+         dpriv->fd = -1U;
+         dpriv->numIsoBuffsInUse = 0;
+         dpriv->numOpens = 0;
+         if (NO_ERROR != DosCreateMutexSem(NULL,&dpriv->hDevMutex,0,FALSE))
+         {
+             libusb_unref_device(dev);
+             continue;
+         }
+         memset(dpriv->altsetting,0,sizeof(dpriv->altsetting));
+         memset(dpriv->endpoint,0,sizeof(dpriv->endpoint));
+         memcpy(dpriv->cdesc, scratchBuf + LIBUSB_DT_DEVICE_SIZE, (len - LIBUSB_DT_DEVICE_SIZE));
+
+         if (LIBUSB_SUCCESS != libusb_get_config_descriptor(dev,0,&dpriv->curr_config_descriptor))
+         {
+             libusb_unref_device(dev);
+             DosCloseMutexSem(dpriv->hDevMutex);
+             continue;
+         }
+         usbi_dbg(ctx, "allocated libusb_get_config_descriptor: %p", dpriv->curr_config_descriptor);
       }
+      dpriv = (struct device_priv *)usbi_get_device_priv(dev);
       ddd = discovered_devs_append(*discdevs, dev);
       libusb_unref_device(dev);
-      if (ddd == NULL) {
+      if (ddd == NULL)
+      {
+         DosCloseMutexSem(dpriv->hDevMutex); dpriv->hDevMutex = NULLHANDLE;
+         libusb_free_config_descriptor(dpriv->curr_config_descriptor); dpriv->curr_config_descriptor = NULL;
          return(LIBUSB_ERROR_NO_MEM);
       }
 
@@ -526,7 +543,8 @@ static int os2_open(struct libusb_device_handle *handle)
    int       ret = LIBUSB_SUCCESS;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
-   usbi_mutex_lock(&handle->lock);
+   DosRequestMutexSem(dpriv->hDevMutex,SEM_INDEFINITE_WAIT);
+
 
    usbi_dbg(HANDLE_CTX(handle), "on entry: fd %#.8lx, numOpens: %u", dpriv->fd,dpriv->numOpens);
 
@@ -560,7 +578,7 @@ static int os2_open(struct libusb_device_handle *handle)
    dpriv->numOpens++;
 
 leave:
-   usbi_mutex_unlock(&handle->lock);
+   DosReleaseMutexSem(dpriv->hDevMutex);
 
    return(ret);
 }
@@ -576,7 +594,8 @@ static void os2_close(struct libusb_device_handle *handle)
    ULONG ulAttributes = 0;
 
    /* take device mutex: we need to manipulate per device control var "numOpens" */
-   usbi_mutex_lock(&handle->lock);
+   DosRequestMutexSem(dpriv->hDevMutex,SEM_INDEFINITE_WAIT);
+
    if (dpriv->numOpens)
    {
        dpriv->numOpens--;
@@ -610,7 +629,7 @@ static void os2_close(struct libusb_device_handle *handle)
       dpriv->fd = -1U;
    }
 
-   usbi_mutex_unlock(&handle->lock);
+   DosReleaseMutexSem(dpriv->hDevMutex);
 
    /* endif */
 }
@@ -811,7 +830,8 @@ static void os2_destroy_device(struct libusb_device *dev)
    struct device_priv *dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    _call_iso_close(dev);
-   libusb_free_config_descriptor(dpriv->curr_config_descriptor);
+   DosCloseMutexSem(dpriv->hDevMutex); dpriv->hDevMutex = NULLHANDLE;
+   libusb_free_config_descriptor(dpriv->curr_config_descriptor); dpriv->curr_config_descriptor = NULL;
 
    usbi_dbg(DEVICE_CTX(dev), "freed libusb_get_config_descriptor: %p", dpriv->curr_config_descriptor);
 
@@ -820,26 +840,29 @@ static void os2_destroy_device(struct libusb_device *dev)
 
 static int os2_submit_transfer(struct usbi_transfer *itransfer)
 {
-   struct libusb_context *ctx       = ITRANSFER_CTX(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+   struct transfer_priv *tpriv = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    int err = LIBUSB_SUCCESS;
 
    usbi_dbg(ITRANSFER_CTX(itransfer), " ");
 
    /*
-    * protect the transfers that are submitted
-    * from being incorrectly added to the list
-    * of flying transfers: there is a chance
-    * that the itransfer address of a transfer
-    * to be freed matches the itransfer address
-    * of a newly allocated transfer in case
-    * the heap managment picks the very same memory
-    * block for its allocation
-    * We do this by requesting the flying transfer
-    * mutex for the whole time that we are busy
-    * submitting a transfer
+    * do not attempt to resubmit this transfer if a "cancel" has already
+    * been scheduled against it
     */
-   usbi_mutex_lock(&ctx->flying_transfers_lock);
+   if (TRUE == tpriv->toCancel)
+   {
+       return LIBUSB_ERROR_IO;
+   }
+
+   /*
+    * do not attempt to submit this transfer if the device has already been
+    * closed
+    */
+   if (!transfer->dev_handle)
+   {
+       return LIBUSB_ERROR_INVALID_PARAM;
+   }
 
    switch (transfer->type) {
    case LIBUSB_TRANSFER_TYPE_CONTROL:
@@ -865,8 +888,6 @@ static int os2_submit_transfer(struct usbi_transfer *itransfer)
       break;
    }
 
-   usbi_mutex_unlock(&ctx->flying_transfers_lock);
-
    return(err);
 }
 
@@ -874,20 +895,12 @@ static int os2_cancel_transfer(struct usbi_transfer *itransfer)
 {
    struct transfer_priv *tpriv = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct libusb_device *dev        = NULL;
-   struct device_priv *dpriv        = NULL;
+   struct libusb_device *dev        = itransfer->dev;
+   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET rc = NO_ERROR;
    int iface = 0;
 
    usbi_dbg(ITRANSFER_CTX(itransfer), " ");
-
-   if (!transfer->dev_handle)
-   {
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
-
-   dev = transfer->dev_handle->dev;
-   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    iface = _interface_for_endpoint(dev,transfer->endpoint);
    if (iface < 0) {
@@ -1079,15 +1092,10 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
    struct transfer_priv *tpriv        = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer   = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
    struct libusb_control_setup *setup = (struct libusb_control_setup *)transfer->buffer;
-   struct libusb_device *dev          = NULL;
-   struct device_priv *dpriv          = NULL;
+   struct libusb_device *dev          = itransfer->dev;
+   struct device_priv *dpriv          = (struct device_priv *)usbi_get_device_priv(dev);;
    APIRET rc = NO_ERROR;
    SEMRECORD semRec = {0};
-
-   if (!transfer->dev_handle)
-   {
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
 
    tpriv->hEventSem = NULLHANDLE;
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
@@ -1096,9 +1104,6 @@ static int _async_control_transfer(struct usbi_transfer *itransfer)
    {
        return(_apiret_to_libusb(rc, ITRANSFER_CTX(itransfer)));
    }
-
-   dev = transfer->dev_handle->dev;
-   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    tpriv->Processed                = 0;
    tpriv->ToProcess                = setup->wLength;
@@ -1136,15 +1141,10 @@ static int _async_bulkirq_transfer(struct usbi_transfer *itransfer)
 
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct libusb_device *dev        = NULL;
-   struct device_priv *dpriv        = NULL;
+   struct libusb_device *dev        = itransfer->dev;
+   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET rc = NO_ERROR;
    SEMRECORD semRec = {0};
-
-   if (!transfer->dev_handle)
-   {
-       return (LIBUSB_ERROR_INVALID_PARAM);
-   }
 
    tpriv->hEventSem = NULLHANDLE;
    rc = DosCreateEventSem(NULL,&tpriv->hEventSem,DC_SEM_SHARED,FALSE);
@@ -1153,9 +1153,6 @@ static int _async_bulkirq_transfer(struct usbi_transfer *itransfer)
    {
        return(_apiret_to_libusb(rc, ITRANSFER_CTX(itransfer)));
    }
-
-   dev = transfer->dev_handle->dev;
-   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    tpriv->Processed                = 0;
    tpriv->ToProcess                = transfer->length < MAX_TRANSFER_SIZE ? transfer->length : MAX_TRANSFER_SIZE;
@@ -1190,9 +1187,8 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
 
    struct transfer_priv *tpriv      = (struct transfer_priv *)usbi_get_transfer_priv(itransfer);
    struct libusb_transfer *transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
-   struct libusb_device_handle *handle = NULL;
-   struct libusb_device *dev        = NULL;
-   struct device_priv *dpriv        = NULL;
+   struct libusb_device *dev        = itransfer->dev;
+   struct device_priv *dpriv        = (struct device_priv *)usbi_get_device_priv(dev);
    APIRET rc = NO_ERROR;
    unsigned int j = 0;
    unsigned int num_max_packets_per_execution = 0;
@@ -1206,10 +1202,6 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
    {
        return (LIBUSB_ERROR_INVALID_PARAM);
    }
-
-   handle = transfer->dev_handle;
-   dev = handle->dev;
-   dpriv = (struct device_priv *)usbi_get_device_priv(dev);
 
    usbi_dbg(ITRANSFER_CTX(itransfer), "initial:num iso packets %u, buffer len %u",transfer->num_iso_packets,transfer->length);
 
@@ -1287,8 +1279,9 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
    num_max_packets_per_execution = (num_max_packets_per_execution / 8U) * 8U;
    if (!num_max_packets_per_execution) num_max_packets_per_execution = 1;
 
-   /* take device handle mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
-   usbi_mutex_lock(&handle->lock);
+   /* take dev mutex: we need to manipulate per device control var "numIsoBuffsInUse" */
+   DosRequestMutexSem(dpriv->hDevMutex,SEM_INDEFINITE_WAIT);
+
 
    if ((dpriv->numIsoBuffsInUse + 1) > NUM_ISO_BUFFS) {
       errorcode = LIBUSB_ERROR_OVERFLOW;
@@ -1341,7 +1334,7 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
 
    usbi_dbg(ITRANSFER_CTX(itransfer), "Num Iso Buffers in use:%u, libusb error: %d",dpriv->numIsoBuffsInUse,errorcode);
 
-   usbi_mutex_unlock(&handle->lock);
+   DosReleaseMutexSem(dpriv->hDevMutex);
 
    return(errorcode);
 }

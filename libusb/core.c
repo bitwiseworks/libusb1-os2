@@ -1415,10 +1415,12 @@ static void do_close(struct libusb_context *ctx,
 		 * we don't accidentally use the device handle in the future
 		 * (or that such accesses will be easily caught and identified as a crash)
 		 */
+		
+		usbi_mutex_lock(&itransfer->lock);
+		itransfer->state_flags &= ~USBI_TRANSFER_IN_FLIGHT;
+		usbi_mutex_unlock(&itransfer->lock);
+		
 		list_del(&itransfer->list);
-#ifdef __OS2__  /* LARS ERDMANN */
-		libusb_unref_device(transfer->dev_handle->dev);
-#endif
 		transfer->dev_handle = NULL;
 
 		/* it is up to the user to free up the actual transfer struct.  this is
