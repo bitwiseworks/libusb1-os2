@@ -1320,14 +1320,14 @@ static int _async_iso_transfer(struct usbi_transfer *itransfer)
       errorcode = _apiret_to_libusb(rc, ITRANSFER_CTX(itransfer));
    }
 
-   if (NO_ERROR != rc)
+   if (LIBUSB_SUCCESS == errorcode)
    {
-       DosDeleteMuxWaitSem(ghMux,(HSEM)tpriv->hEventSem);
-       DosCloseEventSem(tpriv->hEventSem);
+      dpriv->numIsoBuffsInUse += 1;
    }
    else
    {
-      dpriv->numIsoBuffsInUse += 1;
+      DosDeleteMuxWaitSem(ghMux,(HSEM)tpriv->hEventSem);
+      DosCloseEventSem(tpriv->hEventSem);
    }
 
    usbi_dbg(ITRANSFER_CTX(itransfer), "Num Iso Buffers in use:%u, libusb error: %d",dpriv->numIsoBuffsInUse,errorcode);
