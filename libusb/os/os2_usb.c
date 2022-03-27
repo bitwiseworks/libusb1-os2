@@ -117,6 +117,7 @@ const struct usbi_os_backend usbi_backend = {
 static HMUX ghMux               = NULLHANDLE;
 static HEV  ghTerminateSem      = NULLHANDLE;
 static pthread_t gThrd          = NULL;
+usbi_atomic_t gListLock = 0;
 
 unsigned long _System _DLL_InitTerm(unsigned long hmod, unsigned long flag)
 {
