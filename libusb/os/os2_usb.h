@@ -61,7 +61,7 @@ struct device_priv
    unsigned int            numOpens;                        /* tracks the number of nested calls to os2_open */
    unsigned int            numIsoBuffsInUse;                /* only used for isochronous devices */
    unsigned long           fd;                              /* device file descriptor */
-   usbi_atomic_t           hDevSpinLock;                    /* to serialize access to numIsoBuffsInUse */
+   usbi_mutex_t            hDevLock;                        /* to serialize access to numIsoBuffsInUse */
    struct libusb_config_descriptor *curr_config_descriptor; /* pointer to the parsed configuration */
    uint8_t                 altsetting[USB_MAXINTERFACES];   /* remembers what alternate setting was chosen for a given interface */
    uint8_t                 endpoint[USB_MAXINTERFACES];     /* remembers what endpoint was chosen for a given interface */
