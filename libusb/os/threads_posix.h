@@ -43,12 +43,7 @@ static inline void usbi_mutex_init(usbi_mutex_t *mutex)
 }
 static inline void usbi_mutex_lock(usbi_mutex_t *mutex)
 {
-    int rc = pthread_mutex_lock(mutex);
-    if (rc)
-    {
-        asm("movl %0,%%eax"::"r"(rc));
-    }
-//	PTHREAD_CHECK(pthread_mutex_lock(mutex));
+	PTHREAD_CHECK(pthread_mutex_lock(mutex));
 }
 static inline void usbi_mutex_unlock(usbi_mutex_t *mutex)
 {
