@@ -2129,25 +2129,27 @@ static int handle_event_trigger(struct libusb_context *ctx)
 		struct usbi_transfer *itransfer, *tmp;
 		struct list_head completed_transfers;
 
-		assert(!list_empty(&ctx->completed_transfers));
-		list_cut(&completed_transfers, &ctx->completed_transfers);
-		usbi_mutex_unlock(&ctx->event_data_lock);
+		if (!list_empty(&ctx->completed_transfers)) {
 
-		__for_each_completed_transfer_safe(&completed_transfers, itransfer, tmp) {
-			list_del(&itransfer->completed_list);
-			r = usbi_backend.handle_transfer_completion(itransfer);
-			if (r) {
-				usbi_err(ctx, "backend handle_transfer_completion failed with error %d", r);
-				break;
+			list_cut(&completed_transfers, &ctx->completed_transfers);
+			usbi_mutex_unlock(&ctx->event_data_lock);
+
+			__for_each_completed_transfer_safe(&completed_transfers, itransfer, tmp) {
+				list_del(&itransfer->completed_list);
+				r = usbi_backend.handle_transfer_completion(itransfer);
+				if (r) {
+					usbi_err(ctx, "backend handle_transfer_completion failed with error %d", r);
+					break;
+				}
 			}
-		}
 
-		usbi_mutex_lock(&ctx->event_data_lock);
-		if (!list_empty(&completed_transfers)) {
-			/* an error occurred, put the remaining transfers back on the list */
-			list_splice_front(&completed_transfers, &ctx->completed_transfers);
-		} else if (list_empty(&ctx->completed_transfers)) {
-			ctx->event_flags &= ~USBI_EVENT_TRANSFER_COMPLETED;
+			usbi_mutex_lock(&ctx->event_data_lock);
+			if (!list_empty(&completed_transfers)) {
+				/* an error occurred, put the remaining transfers back on the list */
+				list_splice_front(&completed_transfers, &ctx->completed_transfers);
+			} else {
+				ctx->event_flags &= ~USBI_EVENT_TRANSFER_COMPLETED;
+			}
 		}
 	}
 
